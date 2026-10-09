@@ -99,36 +99,31 @@ Other helper scripts:
 
 With the forcing cached, a full run takes about 6–7 minutes. To shorten it, lower `CASTAWAY_PARTICLES_PER_NET` or `CASTAWAY_HINDCAST_DAYS`.
 
-## Deployment (static website on Hostinger, no server)
+## Deployment (static website on Hostinger by FTP, no server)
 
 The public site is **fully static**. GitHub Actions (`.github/workflows/ci-cd.yml`) does the work:
 
 ```
-push to Main / every morning ─► tests ─► run_forecast.py ─► VITE_STATIC=true npm run build + data/ ─► `deploy` branch ─► Hostinger Git ─► public_html/
+push to Main / every morning ─► tests ─► run_forecast.py ─► VITE_STATIC=true npm run build + data/ ─► FTP ─► public_html/castaway/
 ```
 
 - **Every push and pull request:** backend `ruff` + `pytest`, and frontend lint + build.
 - **On a push to `Main`, daily at 04:17 UTC, or "Run workflow":**
   1. Run the forecast on GitHub's computers. The NorKyst ocean data is cached between runs.
   2. Build the site with the forecast files in `data/`.
-  3. Push the result to the `deploy` branch, which Hostinger copies into `public_html/`.
+  3. Upload it by FTP to `public_html/castaway/`, so the site is at `https://<your domain>/castaway/`.
+- **The upload is a sync.** Only new or changed files are sent, and files no longer in the build are removed. The action keeps `.ftp-deploy-sync-state.json` on the server to track this.
 - **Static mode** (`VITE_STATIC=true`): the frontend reads `data/*.json|geojson` instead of the FastAPI server. The server logic that combines per-item files (paths, drift, one-item beaching) is reproduced in `frontend/src/staticData.ts`, which must match `aggregate.py`.
-- `vite.config.ts` uses `base: './'`, so the site works on any domain or subfolder. `public/.htaccess` makes browsers re-check the forecast files on Hostinger.
+- `vite.config.ts` uses `base: './'`, so the site works in the `castaway/` subfolder. `public/.htaccess` makes browsers re-check the forecast files.
 
-**One-time setup:**
-1. **Push to `Main`.** The first successful run creates the `deploy` branch. Watch it under the repo's **Actions** tab.
-2. **Hostinger:** hPanel → your website → **Advanced → Git**.
-   - Repository: `https://github.com/FredrikHusebruh/CastAway.git`
-   - Branch: `deploy`
-   - Directory: empty, which means `public_html`
-   - Then **Deploy**, turn on **Auto Deployment**, and copy its webhook URL.
-3. **GitHub webhook:** repo → **Settings → Webhooks → Add webhook**. Paste the URL, set content type `application/json`, and choose "Just the push event".
-4. **Optional settings** (repo → Settings → Secrets and variables → Actions):
-   - Secrets: `BW_CLIENT_ID`, `BW_CLIENT_SECRET` (BarentsWatch).
-   - Variables:
-     - `CASTAWAY_REGION`: default `finnmark_east`, e.g. `kristiansand`.
-     - `CASTAWAY_MOCK=true`: demo data, with a MOCK DATA badge.
-     - `CASTAWAY_HINDCAST_DAYS`: default 7.
+**One-time setup** (GitHub repo → Settings → Secrets and variables → Actions):
+1. **Secrets** `FTP_SERVER`, `FTP_USERNAME` and `FTP_PASSWORD`, from Hostinger hPanel → **Files → FTP Accounts**. `FTP_SERVER` is the FTP host or IP, without `ftp://`.
+2. **Optional secrets** `BW_CLIENT_ID` and `BW_CLIENT_SECRET` (BarentsWatch).
+3. **Optional variables:**
+   - `CASTAWAY_REGION`: default `finnmark_east`, e.g. `kristiansand`.
+   - `CASTAWAY_MOCK=true`: demo data, with a MOCK DATA badge.
+   - `CASTAWAY_HINDCAST_DAYS`: default 7.
+4. **First publish:** push to `Main`, or Actions → CI/CD → **Run workflow**. Watch it under the **Actions** tab.
 
 **Size:** with 7 hindcast days the site is about 20–30 MB. With 30 days it's about 90 MB, mostly the particle paths. The FastAPI server (`api.py`) is still used for local development (`npm run dev`).
 
