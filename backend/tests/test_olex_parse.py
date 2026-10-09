@@ -82,3 +82,44 @@ def test_normalise_notremoved_record_shape():
     assert row["gear_type"] == "crab_pot"
     assert row["lon"] == pytest.approx(9.1) and row["lat"] == pytest.approx(63.0)
     assert row["lost_time"] == datetime(2026, 10, 8, 7, 37, tzinfo=UTC)
+
+
+def test_fetch_notremoved_never_writes_personal_data(tmp_path, monkeypatch):
+    import json as _json
+
+    from castaway import barentswatch
+
+    record = {
+        "lostMessageId": "11111111-2222-3333-4444-555555555555",
+        "toolId": "t",
+        "isRemoved": False,
+        "toolTypeCode": "NETS",
+        "lostTime": "2026-10-08T09:37:00+02:00",
+        "geometry": {"type": "Point", "coordinates": [9.0, 63.0]},
+        "vesselName": "Secret Vessel",
+        "contactEmail": "skipper@example.no",
+        "contactPhone": "+47 99999999",
+        "mmsi": 257000000,
+        "ircs": "LABC",
+        "regNum": "F-1-V",
+        "comment": "call me",
+    }
+
+    class Resp:
+        text = _json.dumps([record])
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [record]
+
+    monkeypatch.setattr(config, "RAW_DIR", tmp_path)
+    monkeypatch.setattr(barentswatch, "get_token", lambda: "token")
+    monkeypatch.setattr(barentswatch.requests, "get", lambda *a, **k: Resp())
+    records = barentswatch.fetch_notremoved(force=True)
+    on_disk = (tmp_path / "notremoved.json").read_text(encoding="utf-8")
+    for secret in ("Secret Vessel", "skipper@example.no", "99999999", "257000000", "LABC", "F-1-V", "call me"):
+        assert secret not in on_disk
+    assert set(records[0]) == set(barentswatch.NOTREMOVED_FIELDS)
+    assert len(barentswatch.normalise_api_records(records)) == 1

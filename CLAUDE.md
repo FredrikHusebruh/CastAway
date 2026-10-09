@@ -64,6 +64,8 @@ npm run dev | npm run build | npm run lint                # from frontend/ (Vite
   - Each request costs about 1 s per variable per time step, whatever the area. That's why `forcing.py` caches daily subsets and fetches wind at a 3 h stride.
   - Never point OpenDrift readers at the remote URLs for the long hindcast.
 - **Privacy:** raw records contain PII: vesselName, contactEmail/Phone, ircs, mmsi, imo, regNum and the comments. The only fields that may leave `data/raw/` are `id, lon, lat, lost_time, gear_type, float_prob`.
+  - `fetch_notremoved` strips each record to `NOTREMOVED_FIELDS` *before* writing `notremoved.json`, so no personal data ever reaches disk.
+  - The CI cache holds only `backend/data/raw/forcing`. GitHub caches are readable by pull-request runs, including runs from forks, so never cache the BarentsWatch downloads.
 - **Data exchange:**
   - GeoJSON in WGS84, coordinates in `[lon, lat]` order, times in ISO-8601 UTC.
   - Per-day files are `beaching_<YYYY-MM-DD>.geojson`.

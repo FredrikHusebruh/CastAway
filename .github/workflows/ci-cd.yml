@@ -87,12 +87,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # NorKyst ocean data is downloaded once per day and reused by later runs (MET asks for cached, sequential access).
+      # Only the public ocean data is cached: caches can be read by pull-request runs (also from forks), so the
+      # BarentsWatch downloads in backend/data/raw must never be part of it.
       - name: Restore cached ocean data
         uses: actions/cache@v4
         with:
-          path: backend/data/raw
-          key: raw-${{ env.CASTAWAY_REGION }}-${{ github.run_id }}
-          restore-keys: raw-${{ env.CASTAWAY_REGION }}-
+          path: backend/data/raw/forcing
+          key: forcing-${{ env.CASTAWAY_REGION }}-${{ github.run_id }}
+          restore-keys: forcing-${{ env.CASTAWAY_REGION }}-
 
       - uses: actions/setup-python@v5
         with:
