@@ -20,6 +20,9 @@
   --ramp-3: #21918c;
   --ramp-4: #5ec962;
   --ramp-5: #fde725;
+  --logo-ink: #0e3a52;
+  --logo-globe: #0e3a52;
+  --logo-land: #f4efe6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -32,6 +35,9 @@
     --text-secondary: #c3c2b7;
     --text-muted: #a8a29e;
     --accent: #ef8a55;
+    --logo-ink: #f4efe6;
+    --logo-globe: #f4efe6;
+    --logo-land: #0e3a52;
   }
 }
 
@@ -44,6 +50,9 @@
   --text-secondary: #c3c2b7;
   --text-muted: #a8a29e;
   --accent: #ef8a55;
+  --logo-ink: #f4efe6;
+  --logo-globe: #f4efe6;
+  --logo-land: #0e3a52;
 }
 
 @theme inline {

@@ -16,6 +16,7 @@ import {
   type ParticlePath,
 } from './api'
 import MapView, { type Layers } from './components/Map'
+import Logo from './components/Logo'
 import Sidebar from './components/Sidebar'
 
 const MAX_DRIFT_NETS = 25 // matches the API cap per /api/drift request
@@ -140,7 +141,9 @@ export default function App() {
     return (
       <div className="grid h-full place-items-center p-6 text-center">
         <div className="max-w-md space-y-2">
-          <h1 className="text-xl font-bold">CastAway</h1>
+          <h1 className="flex justify-center">
+            <Logo className="h-10 w-auto" />
+          </h1>
           <p className="text-ink-2">Could not load the forecast {STATIC ? 'files (data/)' : `from ${API_URL}`}.</p>
           <p className="text-sm text-ink-3">{error}</p>
         </div>

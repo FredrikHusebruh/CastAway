@@ -3,6 +3,7 @@ import type { CellFeature, GearProps, IndexInfo } from '../api'
 import { formatDateTime, formatNets, formatPercent, gearLabel, ringCenter } from '../format'
 import DateSlider from './DateSlider'
 import Legend from './Legend'
+import Logo from './Logo'
 import type { Layers } from './Map'
 
 interface Props {
@@ -42,8 +43,10 @@ export default function Sidebar(props: Props) {
   return (
     <aside className="flex h-full flex-col overflow-y-auto bg-surface text-ink">
       <header className="px-4 pb-3 pt-4">
-        <h1 className="text-xl font-bold tracking-tight">CastAway</h1>
-        <p className="text-sm text-ink-2">Where will lost fishing gear wash ashore?</p>
+        <h1>
+          <Logo className="h-9 w-auto" />
+        </h1>
+        <p className="mt-1 text-sm text-ink-2">Where will lost fishing gear wash ashore?</p>
         {index.gear_source === 'mock' && (
           <p className="mt-2 rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900">
             <strong>Mock data:</strong> lost-gear reports are randomly generated for demonstration. Currents and wind
