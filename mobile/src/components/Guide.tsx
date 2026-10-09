@@ -10,33 +10,33 @@ interface Step {
 
 const STEPS: Step[] = [
   {
-    title: 'Welcome to CastAway',
-    body: 'CastAway forecasts where lost fishing gear will wash ashore on the Norwegian coast, using ocean currents and wind from MET Norway.',
+    title: 'Velkommen til CastAway',
+    body: 'CastAway varsler hvor tapte fiskeredskap vil drive i land på norskekysten, ut fra havstrøm og vind fra Meteorologisk institutt.',
   },
   {
     target: 'map',
-    title: 'The map',
-    body: 'The coloured glow along the coast shows where nets are expected to wash ashore: purple is less, yellow is most. Dark dots are reported lost gear. Tap a lost item to see where it alone washes ashore, or tap the coast for details.',
+    title: 'Kartet',
+    body: 'Fargene langs kysten viser hvor garn ventes å drive i land: lilla er lite, gult er mest. Mørke prikker er meldte tapte redskap, og grønne er dine egne funn. Trykk på et tapt redskap for å se hvor akkurat det driver i land, eller på kysten for detaljer.',
   },
   {
     target: 'date',
-    title: 'Pick a date',
-    body: 'Step through days with ‹ ›, drag the slider or press play. Past days are hindcast, later days are forecast. Each date shows the 7 days up to it.',
+    title: 'Velg dato',
+    body: 'Bla mellom dagene med ‹ ›, dra i glidebryteren eller trykk spill av. Tidligere dager er historikk, senere dager er prognose. Hver dato viser de 7 dagene fram til den.',
   },
   {
     target: 'panel',
-    title: 'Hotspots, layers and legend',
-    body: 'Tap or drag the panel up to see the top hotspots (by most nets or nearest you), turn map layers on and off, and read what the colours mean.',
+    title: 'Hotspots, kartlag og forklaring',
+    body: 'Trykk på eller dra opp panelet for å se de største hotspotene (flest garn eller nærmest deg), slå kartlag av og på og lese hva fargene betyr.',
   },
   {
     target: 'nav',
-    title: 'The menu',
-    body: 'Home takes you back to the map of the whole region. Leaderboard, Rapportering (reporting gear) and Profile are coming soon. Zoom with the + and − buttons on the map, or pinch.',
+    title: 'Menyen',
+    body: 'Hjem tar deg tilbake til kartet over hele området. I Rapportering melder du funn med bilde og GPS og får poeng. Toppliste viser hvem som har ryddet mest, og i Profil finner du poeng, merker og lag. Zoom med + og − på kartet, eller knip.',
   },
   {
     target: 'help',
-    title: "That's it",
-    body: 'Tap the question mark any time to see this guide again.',
+    title: 'Det var det',
+    body: 'Trykk på spørsmålstegnet når som helst for å se denne veiviseren igjen.',
   },
 ]
 
@@ -103,12 +103,12 @@ export default function Guide({ onClose, leaving }: { onClose: () => void; leavi
           type="button"
           onClick={onClose}
           className="absolute right-2 top-2 grid h-10 w-10 place-items-center rounded-full text-ink-3 active:bg-surface-2"
-          aria-label="Close guide"
+          aria-label="Lukk veiviseren"
         >
           <CloseIcon />
         </button>
         <div className="text-xs font-medium text-ink-3">
-          {i + 1} of {STEPS.length}
+          {i + 1} av {STEPS.length}
         </div>
         <h2 id="guide-title" className="mt-0.5 pr-8 text-lg font-semibold">
           {step.title}
@@ -128,7 +128,7 @@ export default function Guide({ onClose, leaving }: { onClose: () => void; leavi
                 onClick={() => setI(i - 1)}
                 className="h-10 rounded-full px-4 text-sm font-medium text-ink-2 active:bg-surface-2"
               >
-                Back
+                Tilbake
               </button>
             )}
             <button
@@ -136,7 +136,7 @@ export default function Guide({ onClose, leaving }: { onClose: () => void; leavi
               onClick={() => (last ? onClose() : setI(i + 1))}
               className="h-10 rounded-full bg-ink px-5 text-sm font-semibold text-surface active:opacity-80"
             >
-              {last ? 'Done' : 'Next'}
+              {last ? 'Ferdig' : 'Neste'}
             </button>
           </div>
         </div>

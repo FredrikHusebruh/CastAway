@@ -3,7 +3,7 @@ import { formatDateTime, formatKm, formatNets, formatPercent, ringCenter } from 
 import Legend from './Legend'
 import type { Layers } from './Map'
 
-const TABS = ['Hotspots', 'Layers', 'Legend', 'About'] as const
+const TABS = ['Hotspots', 'Kartlag', 'Forklaring', 'Om'] as const
 export type Tab = (typeof TABS)[number]
 export type HotspotSort = 'nets' | 'near'
 export interface Hotspot {
@@ -12,15 +12,16 @@ export interface Hotspot {
 }
 
 const SORTS: { sort: HotspotSort; label: string }[] = [
-  { sort: 'nets', label: 'Most nets' },
-  { sort: 'near', label: 'Nearest me' },
+  { sort: 'nets', label: 'Flest garn' },
+  { sort: 'near', label: 'Nærmest meg' },
 ]
 
 const LAYER_LABELS: Record<keyof Layers, string> = {
-  beaching: 'Beaching forecast',
-  gear: 'Lost gear',
-  paths: 'Drift paths',
-  drift: 'Drift likelihood (heat map)',
+  beaching: 'Prognose for stranding',
+  gear: 'Tapte redskap',
+  paths: 'Driftsbaner',
+  drift: 'Hvor det driver (varmekart)',
+  reports: 'Mine funn',
 }
 
 interface Props {
@@ -67,7 +68,7 @@ export default function SheetTabs(props: Props) {
       <div key={tab} className="min-h-0 flex-1 animate-fade-in overflow-y-auto overscroll-contain px-4 py-3">
         {tab === 'Hotspots' && (
           <>
-            <div role="radiogroup" aria-label="Sort hotspots" className="mb-2 flex rounded-full bg-surface-2 p-1">
+            <div role="radiogroup" aria-label="Sorter hotspots" className="mb-2 flex rounded-full bg-surface-2 p-1">
               {SORTS.map(({ sort, label }) => (
                 <button
                   key={sort}
@@ -79,22 +80,22 @@ export default function SheetTabs(props: Props) {
                     props.hotspotSort === sort ? 'bg-surface text-ink shadow-sm' : 'text-ink-3'
                   }`}
                 >
-                  {sort === 'near' && props.locating ? 'Finding you…' : label}
+                  {sort === 'near' && props.locating ? 'Finner deg …' : label}
                 </button>
               ))}
             </div>
             {props.locError && <p className="mb-2 text-xs text-red-700">{props.locError}</p>}
             {props.hotspots.length === 0 ? (
-              <p className="text-sm text-ink-3">No strandings expected in this period.</p>
+              <p className="text-sm text-ink-3">Ingen strandinger ventet i denne perioden.</p>
             ) : (
               <>
                 <p className="mb-1 text-xs text-ink-3">
                   {props.hotspotSort === 'near'
-                    ? 'Nearest to you'
+                    ? 'Nærmest deg'
                     : props.itemMode
-                      ? 'Where this item most likely washes ashore'
-                      : 'Most likely to wash ashore'}{' '}
-                  · last {props.windowDays} days
+                      ? 'Hvor dette redskapet mest sannsynlig driver i land'
+                      : 'Mest sannsynlig i land'}{' '}
+                  · siste {props.windowDays} dager
                 </p>
                 <ol className="divide-y divide-line">
                   {props.hotspots.map(({ cell: f, km }, k) => {
@@ -107,13 +108,13 @@ export default function SheetTabs(props: Props) {
                           className="flex min-h-12 w-full items-center justify-between gap-2 text-left text-sm active:bg-surface-2"
                         >
                           <span className="min-w-0 text-ink-2">
-                            {k + 1}. {lat.toFixed(3)}°N {lng.toFixed(3)}°E
-                            {km !== null && <span className="block text-xs text-ink-3">{formatKm(km)} away</span>}
+                            {k + 1}. {lat.toFixed(3)}°N {lng.toFixed(3)}°Ø
+                            {km !== null && <span className="block text-xs text-ink-3">{formatKm(km)} unna</span>}
                           </span>
                           <span className="shrink-0 font-semibold tabular-nums">
                             {props.itemMode
                               ? formatPercent(f.properties.expected_nets)
-                              : `${formatNets(f.properties.expected_nets)} nets`}
+                              : `${formatNets(f.properties.expected_nets)} garn`}
                           </span>
                         </button>
                       </li>
@@ -125,7 +126,7 @@ export default function SheetTabs(props: Props) {
           </>
         )}
 
-        {tab === 'Layers' && (
+        {tab === 'Kartlag' && (
           <ul className="divide-y divide-line">
             {(Object.keys(LAYER_LABELS) as (keyof Layers)[]).map((layer) => (
               <li key={layer}>
@@ -142,20 +143,20 @@ export default function SheetTabs(props: Props) {
             ))}
           </ul>
         )}
-        {tab === 'Layers' &&
+        {tab === 'Kartlag' &&
           (props.nSelected > 0 ? (
             <button
               type="button"
               onClick={props.onClearSelection}
               className="mt-3 h-11 w-full rounded-xl border border-line text-sm font-medium text-ink-2 active:bg-surface-2"
             >
-              Clear drift for {props.nSelected} item{props.nSelected === 1 ? '' : 's'}
+              Fjern drift for {props.nSelected} redskap
             </button>
           ) : (
-            <p className="mt-3 text-xs text-ink-3">Tap a lost item or a coast cell to see where it drifts.</p>
+            <p className="mt-3 text-xs text-ink-3">Trykk på et tapt redskap eller kysten for å se hvor det driver.</p>
           ))}
 
-        {tab === 'Legend' && (
+        {tab === 'Forklaring' && (
           <Legend
             breaks={index.color_breaks ?? []}
             windowDays={props.windowDays}
@@ -165,23 +166,25 @@ export default function SheetTabs(props: Props) {
           />
         )}
 
-        {tab === 'About' && (
+        {tab === 'Om' && (
           <div className="space-y-2">
             {index.gear_source === 'mock' && (
               <p className="rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900">
-                <strong>Mock data:</strong> lost-gear reports are randomly generated for demonstration. Currents and
-                wind are real.
+                <strong>Testdata:</strong> meldingene om tapte redskap er tilfeldig generert for demonstrasjon. Strøm
+                og vind er ekte.
               </p>
             )}
             <p className="text-sm text-ink-2">
-              Reports of lost, unrecovered fishing gear ({index.n_nets} items in this region) are released as{' '}
-              {index.particles_per_net} virtual particles each and drifted with ocean currents and wind from MET
-              Norway's NorKyst model using OpenDrift. Where particles hit the coast they strand. Each coast cell shows
-              the expected number of nets washed ashore in the {props.windowDays} days up to the selected date,
-              weighted by how likely each gear type is to float. Tap an item or a coast cell to see where it drifts.
+              Meldte tapte fiskeredskap som ikke er tatt opp ({index.n_nets} i dette området) slippes ut som{' '}
+              {index.particles_per_net} virtuelle partikler hver og driver med havstrøm og vind fra
+              Meteorologisk institutts NorKyst-modell i OpenDrift. Der partiklene treffer kysten, strander de. Hver
+              kyststrekning viser hvor mange garn som ventes å drive i land de {props.windowDays} dagene fram til valgt
+              dato, vektet etter hvor sannsynlig det er at redskapstypen flyter. Trykk på et redskap eller kysten for å
+              se hvor det driver.
             </p>
             <p className="text-xs text-ink-3">
-              Model run {formatDateTime(index.run_timestamp)}. Uncertainty grows with drift time; most lost gear sinks.
+              Modellkjøring {formatDateTime(index.run_timestamp)}. Usikkerheten øker med drifttiden; det meste av tapt
+              redskap synker.
             </p>
             <p className="text-xs text-ink-3">{index.attribution}</p>
           </div>

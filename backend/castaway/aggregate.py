@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from castaway import config
+from castaway import coast, config
 
 log = logging.getLogger(__name__)
 
@@ -389,7 +389,7 @@ def write_outputs(
     region: str,
     source: str,
 ) -> dict[str, Any]:
-    """Write lost_gear.geojson, beaching_<date>.geojson, tracks/<id>.json, drift/<id>.json and index.json."""
+    """Write lost_gear.geojson, beaching_<date>.geojson, coast.json, the per-item folders and index.json."""
     out = config.OUTPUT_DIR
     bbox = config.region_bbox(region)
     lat0 = bbox.center[1]
@@ -403,6 +403,7 @@ def write_outputs(
         old.unlink()
 
     _write_json(out / "lost_gear.geojson", gear_geojson(gear))
+    _write_json(out / "coast.json", coast.coast_cells(bbox, cell_size_deg(lat0)))
     all_strandings = load_strandings(run_dir)
     strandings = all_strandings[all_strandings["time"] >= window.first_day]
     log.info("discarded %d spin-up strandings before %s", len(all_strandings) - len(strandings), window.first_day)

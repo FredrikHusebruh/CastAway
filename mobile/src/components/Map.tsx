@@ -2,7 +2,8 @@ import L from 'leaflet'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { CircleMarker, ImageOverlay, MapContainer, Marker, Pane, TileLayer, useMap, useMapEvents, ZoomControl } from 'react-leaflet'
 import type { CellCollection, CellFeature, DriftResponse, GearCollection, GearProps, ParticlePath } from '../api'
-import { GEAR_COLOR, SELECTED_COLOR, STRANDED_COLOR, beachingRGBA, driftRGBA, ringCenter, windageColor } from '../format'
+import { GEAR_COLOR, REPORT_COLOR, SELECTED_COLOR, STRANDED_COLOR, beachingRGBA, driftRGBA, ringCenter, windageColor } from '../format'
+import type { Report } from '../game/rules'
 import { buildRaster } from '../raster'
 
 export interface Layers {
@@ -10,13 +11,17 @@ export interface Layers {
   beaching: boolean
   paths: boolean
   drift: boolean
+  reports: boolean // the user's own found-gear reports ("Mine funn")
 }
 
 /** 'region' = all items' expected nets; 'item' = one selected item's own chance of washing ashore. */
 export type BeachingMode = 'region' | 'item'
 
 /** What the user tapped on the map; shown as a card in the bottom sheet instead of a Leaflet popup. */
-export type Picked = { kind: 'gear'; gear: GearProps } | { kind: 'cell'; cell: CellFeature }
+export type Picked =
+  | { kind: 'gear'; gear: GearProps }
+  | { kind: 'cell'; cell: CellFeature }
+  | { kind: 'report'; report: Report }
 
 interface Props {
   bbox: [number, number, number, number]
@@ -26,6 +31,7 @@ interface Props {
   breaks: number[]
   drift: DriftResponse | null
   paths: ParticlePath[] | null
+  reports: Report[] // shown as "Mine funn" (deliveries and rejected reports are left out)
   windageFactors: number[]
   selectedNets: string[]
   picked: Picked | null
@@ -61,6 +67,7 @@ const GEAR_PANE = 'gear'
 interface TapProps {
   gear: GearCollection | null
   cells: CellCollection | null
+  reports: Report[]
   layers: Layers
   onPick: (picked: Picked | null) => void
 }
@@ -70,7 +77,7 @@ interface TapProps {
  * The coast cells are one raster image, and Leaflet's own hit test would give a finger-sized tap to the
  * last-drawn shape rather than the nearest, so taps are resolved here.
  */
-function TapPicker({ gear, cells, layers, onPick }: TapProps) {
+function TapPicker({ gear, cells, reports, layers, onPick }: TapProps) {
   const map = useMapEvents({
     click: (e) => {
       const at = e.containerPoint
@@ -94,6 +101,12 @@ function TapPicker({ gear, cells, layers, onPick }: TapProps) {
           const d = dist(lat, lng)
           // a direct hit on a gear dot wins over the cell it sits in
           consider(d <= GEAR_DIRECT_HIT ? d - GEAR_DIRECT_HIT : d, { kind: 'gear', gear: f.properties })
+        }
+      }
+      if (layers.reports) {
+        for (const report of reports) {
+          const d = dist(report.pos.lat, report.pos.lng)
+          consider(d <= GEAR_DIRECT_HIT ? d - GEAR_DIRECT_HIT : d, { kind: 'report', report })
         }
       }
       onPick(best)
@@ -299,6 +312,7 @@ const PULSE_ICON = L.divIcon({ className: '', html: '<span class="pulse-ring"></
 function PickedPulse({ picked, gear }: { picked: Picked | null; gear: GearCollection | null }) {
   let at: [number, number] | null = null
   if (picked?.kind === 'cell') at = ringCenter(picked.cell.geometry.coordinates[0])
+  if (picked?.kind === 'report') at = [picked.report.pos.lat, picked.report.pos.lng]
   if (picked?.kind === 'gear') {
     const f = gear?.features.find((g) => g.properties.id === picked.gear.id)
     if (f) at = [f.geometry.coordinates[1], f.geometry.coordinates[0]]
@@ -339,7 +353,7 @@ export default memo(function MapView(props: Props) {
       <MapReady onReady={props.onMapReady} />
       <ResizeWatcher />
       <ZoomWatcher onZoom={setZoom} />
-      <TapPicker gear={props.gear} cells={props.cells} layers={props.layers} onPick={onPick} />
+      <TapPicker gear={props.gear} cells={props.cells} reports={props.reports} layers={props.layers} onPick={onPick} />
       <FlyTo focus={props.focus} />
       <FitToPaths paths={props.paths} selectionKey={props.selectedNets.join()} />
 
@@ -372,6 +386,22 @@ export default memo(function MapView(props: Props) {
               />
             )
           })}
+        {props.layers.reports &&
+          props.reports.map((r) => (
+            <CircleMarker
+              key={r.id}
+              center={[r.pos.lat, r.pos.lng]}
+              radius={props.picked?.kind === 'report' && props.picked.report.id === r.id ? 8 : 6}
+              interactive={false}
+              pathOptions={{
+                color: '#ffffff',
+                weight: 2,
+                dashArray: r.status === 'pending' ? '3 2' : undefined, // pending approval
+                fillColor: REPORT_COLOR,
+                fillOpacity: r.status === 'pending' ? 0.6 : 0.95,
+              }}
+            />
+          ))}
         {props.userPos && (
           <CircleMarker
             center={props.userPos}

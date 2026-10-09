@@ -6,6 +6,7 @@ import { type RGBA, logPosition, rampAt } from './raster'
 export const RAMP = ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'] as const
 export const RAMP_OPACITY = [0.3, 0.45, 0.65, 0.85, 0.95] as const
 export const GEAR_COLOR = '#1e293b'
+export const REPORT_COLOR = '#0f766e' // the user's own reports ("Mine funn"); teal, outside the viridis ramps
 
 // Viridis (user's choice): perceptually uniform, colour-blind safe; dark purple = low, yellow = high.
 export const VIRIDIS = ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'] as const
@@ -47,32 +48,32 @@ export function driftRGBA(v: number): RGBA {
 export function formatNets(value: number): string {
   if (value === 0) return '0'
   if (value >= 10) return value.toFixed(0)
-  return value.toPrecision(2)
+  return value.toPrecision(2).replace('.', ',') // Norwegian decimal comma
 }
 
 /** A probability (0-1) as a percentage, e.g. 0.036 -> "3.6 %". */
 export function formatPercent(p: number): string {
   const pct = p * 100
   if (pct === 0) return '0 %'
-  if (pct < 0.1) return '<0.1 %'
-  return `${pct < 10 ? pct.toFixed(1) : pct.toFixed(0)} %`
+  if (pct < 0.1) return '<0,1 %'
+  return `${pct < 10 ? pct.toFixed(1).replace('.', ',') : pct.toFixed(0)} %`
 }
 
 const GEAR_LABELS: Record<string, string> = {
-  nets: 'Gillnet',
-  longline: 'Long line',
-  crab_pot: 'Crab pot',
-  fish_pot: 'Fish pot',
-  seine: 'Seine',
-  sensor_cable: 'Sensor / cable',
-  generic: 'Other gear',
-  unknown: 'Unknown gear',
+  nets: 'Garn',
+  longline: 'Line',
+  crab_pot: 'Krabbeteine',
+  fish_pot: 'Fisketeine',
+  seine: 'Not',
+  sensor_cable: 'Sensor / kabel',
+  generic: 'Annet redskap',
+  unknown: 'Ukjent redskap',
 }
 
 export const gearLabel = (type: string): string => GEAR_LABELS[type] ?? type
 
 export function formatDate(iso: string): string {
-  return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-GB', {
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString('nb-NO', {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -80,7 +81,7 @@ export function formatDate(iso: string): string {
 }
 
 export function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-GB', {
+  return new Date(iso).toLocaleString('nb-NO', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -91,11 +92,11 @@ export function formatDateTime(iso: string): string {
   })
 }
 
-/** Short UTC timestamp for the header, e.g. "9 Oct, 06:00 UTC". */
+/** Short UTC timestamp for the header, e.g. "9. okt., 06:00 UTC". */
 export function formatUpdated(iso: string): string {
   const d = new Date(iso)
-  const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+  const day = d.toLocaleDateString('nb-NO', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  const time = d.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
   return `${day}, ${time} UTC`
 }
 
@@ -123,5 +124,5 @@ export function distanceKm([lat1, lng1]: [number, number], [lat2, lng2]: [number
 }
 
 export function formatKm(km: number): string {
-  return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`
+  return km < 10 ? `${km.toFixed(1).replace('.', ',')} km` : `${Math.round(km)} km`
 }

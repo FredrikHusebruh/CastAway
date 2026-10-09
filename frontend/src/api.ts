@@ -55,6 +55,13 @@ export type GearCollection = FeatureCollection<Point, GearProps>
 export type CellCollection = FeatureCollection<Polygon, CellProps>
 export type CellFeature = Feature<Polygon, CellProps>
 
+/** coast.json: ~1 km cells of the region that contain coast (cell i,j covers lon i*dlon.., lat j*dlat..). */
+export interface CoastInfo {
+  cell_deg: [number, number] // [dlon, dlat]
+  bbox?: [number, number, number, number] // area covered: the region plus a margin, so edges see nearby coast
+  cells: [number, number][] // [i, j]
+}
+
 /** One item's beaching cells: expected_nets = its total chance of washing ashore there (float chance included). */
 export type ItemBeaching = CellCollection & { id: string; chance_total: number; float_prob: number }
 
@@ -77,6 +84,7 @@ export const fetchBeaching = (date: string) =>
   STATIC
     ? getStatic<CellCollection>(`beaching_${date}.geojson`)
     : getJson<CellCollection>(`/api/beaching?date=${date}`)
+export const fetchCoast = () => (STATIC ? getStatic<CoastInfo>('coast.json') : getJson<CoastInfo>('/api/coast'))
 export const fetchItemBeaching = (id: string, date: string) =>
   STATIC
     ? staticItemBeaching(id, date)

@@ -2,6 +2,7 @@ import type L from 'leaflet'
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type CellCollection,
+  type CoastInfo,
   type DriftResponse,
   type GearCollection,
   type IndexInfo,
@@ -9,6 +10,7 @@ import {
   API_URL,
   STATIC,
   fetchBeaching,
+  fetchCoast,
   fetchDrift,
   fetchGear,
   fetchIndex,
@@ -19,12 +21,16 @@ import {
 import DateBar from './components/DateBar'
 import DetailCard from './components/DetailCard'
 import Guide from './components/Guide'
-import ComingSoon from './components/ComingSoon'
+import Screen from './components/Screen'
 import { CloseIcon, HelpIcon, HomeIcon, LeaderboardIcon, ProfileIcon, ReportIcon } from './components/Icons'
 import MapView, { type Layers, type Picked } from './components/Map'
 import SheetTabs, { type Hotspot, type HotspotSort, type Tab } from './components/Sheet'
 import { distanceKm, formatDate, formatUpdated, gearLabel, ringCenter } from './format'
+import { useGame } from './game/store'
 import { haptic, usePresence, useSheetDrag } from './motion'
+import Leaderboard from './screens/Leaderboard'
+import Profile from './screens/Profile'
+import Report from './screens/Report'
 
 const MAX_DRIFT_NETS = 25 // matches the API cap per /api/drift request
 const N_HOTSPOTS = 5
@@ -42,34 +48,19 @@ const floatingBtn =
 const navBtn =
   'flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors duration-200 active:bg-surface-2'
 
-// Bottom-bar screens other than the map. All are placeholders for now: accounts, leaderboards and
-// found-net reporting are out of scope for the prototype (CLAUDE.md), so these are the extension points.
-type Screen = 'leaderboard' | 'report' | 'profile'
-const NAV: { screen: Screen; label: string; Icon: () => JSX.Element; text: string }[] = [
-  {
-    screen: 'leaderboard',
-    label: 'Leaderboard',
-    Icon: LeaderboardIcon,
-    text: 'See who has cleaned up the most lost gear along the coast.',
-  },
-  {
-    screen: 'report',
-    label: 'Rapportering',
-    Icon: ReportIcon,
-    text: 'Report lost or found fishing gear, with photo and position.',
-  },
-  {
-    screen: 'profile',
-    label: 'Profile',
-    Icon: ProfileIcon,
-    text: 'Sign in and follow the beaches you care about.',
-  },
+// Bottom-bar screens other than the map. Reports, points and the leaderboard are stored on this device only
+// (game/store.ts); there are no accounts or servers.
+type ScreenId = 'report' | 'leaderboard' | 'profile'
+const NAV: { screen: ScreenId; label: string; title: string; Icon: () => JSX.Element }[] = [
+  { screen: 'report', label: 'Rapportering', title: 'Rapportering', Icon: ReportIcon },
+  { screen: 'leaderboard', label: 'Toppliste', title: 'Toppliste', Icon: LeaderboardIcon },
+  { screen: 'profile', label: 'Profil', title: 'Min profil', Icon: ProfileIcon },
 ]
 
 /** Grey outline of the app with a shimmer while the forecast loads. */
 function LoadingSkeleton() {
   return (
-    <div className="flex h-dvh flex-col bg-surface" aria-busy="true" aria-label="Loading forecast">
+    <div className="flex h-dvh flex-col bg-surface" aria-busy="true" aria-label="Laster prognosen">
       <div className="space-y-1.5 border-b border-line px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="shimmer h-5 w-28 rounded" />
         <div className="shimmer h-3 w-44 rounded" />
@@ -107,7 +98,9 @@ export default function App() {
   const [selectedNets, setSelectedNets] = useState<string[]>([])
   const [drift, setDrift] = useState<DriftResponse | null>(null)
   const [paths, setPaths] = useState<{ ids: string[]; paths: ParticlePath[] } | null>(null)
-  const [layers, setLayers] = useState<Layers>({ gear: true, beaching: true, paths: true, drift: false })
+  const [layers, setLayers] = useState<Layers>({ gear: true, beaching: true, paths: true, drift: false, reports: true })
+  const [coast, setCoast] = useState<CoastInfo | null>(null)
+  const game = useGame()
   const [focus, setFocus] = useState<[number, number] | null>(null)
   // item focus: one lost item whose own beaching chance replaces the regional map (as on desktop)
   const [itemId, setItemId] = useState<string | null>(null)
@@ -119,14 +112,20 @@ export default function App() {
   const [userPos, setUserPos] = useState<[number, number] | null>(null)
   const [locating, setLocating] = useState(false)
   const [locError, setLocError] = useState<string | null>(null)
-  const [overlay, setOverlay] = useState<'guide' | Screen | null>(null)
+  const [overlay, setOverlay] = useState<'guide' | ScreenId | null>(null)
   const [outdated, setOutdated] = useState(false) // forecast run older than STALE_AFTER_MS
   const [pending, setPending] = useState(0) // requests in flight, for the loading bar
   const mapRef = useRef<L.Map | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const [panelHeight, setPanelHeight] = useState(0)
   const { dragHeight, dragHandlers } = useSheetDrag(expanded, setExpanded, panelRef)
-  const [shownCard, cardLeaving] = usePresence(picked)
+  // a report card follows the stored report (a moderator decision, "delete all"); rejected or deleted closes it
+  const livePicked: Picked | null = useMemo(() => {
+    if (picked?.kind !== 'report') return picked
+    const r = game.reports.find((x) => x.id === picked.report.id)
+    return r && r.status !== 'rejected' ? { kind: 'report', report: r } : null
+  }, [picked, game.reports])
+  const [shownCard, cardLeaving] = usePresence(livePicked)
   const [shownOverlay, overlayLeaving] = usePresence(overlay)
   const [shownError, errorLeaving] = usePresence(index ? error : null)
   const [shownDriftCount, chipLeaving] = usePresence(selectedNets.length || null)
@@ -159,6 +158,10 @@ export default function App() {
         setDate(defaultDate(idx))
       })
       .catch((e: Error) => setError(e.message))
+    // coast cells for the report checks; older outputs have none (reports are then not checked against the coast)
+    fetchCoast()
+      .then(setCoast)
+      .catch(() => setCoast(null))
   }, [])
 
   useEffect(() => {
@@ -282,12 +285,24 @@ export default function App() {
   }
   const closeOverlay = useCallback(() => setOverlay(null), [])
 
+  // from a submitted report: back to the map, zoomed in on it, with "Mine funn" shown
+  const showReportOnMap = useCallback((latLng: [number, number]) => {
+    setOverlay(null)
+    setLayers((l) => ({ ...l, reports: true }))
+    setFocus(latLng)
+    setExpanded(false)
+  }, [])
+  const mapReports = useMemo(
+    () => game.reports.filter((r) => r.kind !== 'delivery' && r.status !== 'rejected'),
+    [game.reports],
+  )
+
   /** "Nearest me" needs the phone's position; browsers only share it on https or localhost. */
   const sortHotspots = (sort: HotspotSort) => {
     setLocError(null)
     if (sort === 'nets' || userPos) return setHotspotSort(sort)
     if (!window.isSecureContext || !navigator.geolocation) {
-      return setLocError('Location only works over https (or on localhost).')
+      return setLocError('Posisjon virker bare over https (eller på localhost).')
     }
     setLocating(true)
     navigator.geolocation.getCurrentPosition(
@@ -297,7 +312,7 @@ export default function App() {
         setLocating(false)
       },
       (err) => {
-        setLocError(err.code === err.PERMISSION_DENIED ? 'Location access was denied.' : 'Could not find your location.')
+        setLocError(err.code === err.PERMISSION_DENIED ? 'Du har ikke gitt tilgang til posisjonen.' : 'Fant ikke posisjonen din.')
         setLocating(false)
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
@@ -329,7 +344,7 @@ export default function App() {
         <div className="max-w-md space-y-2">
           <h1 className="text-xl font-bold">CastAway</h1>
           <p className="text-ink-2">
-            Could not load the forecast {STATIC ? 'files (data/)' : `from ${API_URL || 'the backend'}`}.
+            Kunne ikke laste prognosen {STATIC ? '(data/)' : `fra ${API_URL || 'serveren'}`}.
           </p>
           <p className="text-sm text-ink-3">{error}</p>
           <button
@@ -337,7 +352,7 @@ export default function App() {
             onClick={() => window.location.reload()}
             className="mt-2 h-11 rounded-full bg-ink px-5 text-sm font-semibold text-surface"
           >
-            Try again
+            Prøv igjen
           </button>
         </div>
       </div>
@@ -358,8 +373,8 @@ export default function App() {
         <div className="min-w-0">
           <h1 className="text-lg font-bold leading-tight tracking-tight">CastAway</h1>
           <p className="truncate text-xs text-ink-2">
-            Updated {formatUpdated(index.run_timestamp)}
-            {outdated && <span className="ml-1 font-semibold text-amber-700">· outdated</span>}
+            Oppdatert {formatUpdated(index.run_timestamp)}
+            {outdated && <span className="ml-1 font-semibold text-amber-700">· utdatert</span>}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -368,13 +383,13 @@ export default function App() {
               type="button"
               onClick={() => {
                 setPicked(null)
-                setSheetTab('About')
+                setSheetTab('Om')
                 setExpanded(true)
               }}
               className="rounded-md bg-amber-400 px-2 py-1 text-xs font-bold tracking-wide text-amber-950 active:opacity-80"
-              title="What does mock data mean?"
+              title="Hva betyr testdata?"
             >
-              MOCK DATA
+              TESTDATA
             </button>
           )}
           <button
@@ -382,8 +397,8 @@ export default function App() {
             onClick={openGuide}
             data-tour="help"
             className="grid h-10 w-10 place-items-center rounded-full text-ink-2 active:bg-surface-2"
-            aria-label="About this app"
-            title="About this app"
+            aria-label="Om appen"
+            title="Om appen"
           >
             <HelpIcon />
           </button>
@@ -399,9 +414,10 @@ export default function App() {
           breaks={breaks}
           drift={shownDrift}
           paths={shownPaths}
+          reports={mapReports}
           windageFactors={windageFactors}
           selectedNets={selectedNets}
-          picked={picked}
+          picked={livePicked}
           layers={layers}
           focus={focus}
           userPos={userPos}
@@ -415,12 +431,12 @@ export default function App() {
               className={`${floatingBtn} ${chipLeaving ? 'pointer-events-none animate-fade-out' : 'animate-fade-in'}`}
               onClick={clearSelection}
             >
-              Drift: {shownDriftCount} item{shownDriftCount === 1 ? '' : 's'} ✕
+              Drift: {shownDriftCount} redskap ✕
             </button>
           )}
         </div>
         {pending > 0 && (
-          <div className="loading-bar absolute inset-x-0 top-0 z-[1000] h-1 overflow-hidden" role="progressbar" aria-label="Loading" />
+          <div className="loading-bar absolute inset-x-0 top-0 z-[1000] h-1 overflow-hidden" role="progressbar" aria-label="Laster" />
         )}
         {shownError && (
           // a request after start-up failed (e.g. drift paths); the map keeps working, so just say so
@@ -428,12 +444,12 @@ export default function App() {
             role="alert"
             className={`absolute inset-x-3 bottom-14 z-[1000] ${errorLeaving ? 'pointer-events-none animate-fade-down-out' : 'animate-fade-up'} flex items-center gap-2 rounded-xl bg-red-700 py-2 pl-3 pr-1 text-sm text-white shadow-md`}
           >
-            <span className="min-w-0 flex-1">Could not load part of the forecast. Check the connection and try again.</span>
+            <span className="min-w-0 flex-1">Kunne ikke laste en del av prognosen. Sjekk nettet og prøv igjen.</span>
             <button
               type="button"
               onClick={() => setError(null)}
               className="grid h-10 w-10 shrink-0 place-items-center rounded-full active:bg-white/20"
-              aria-label="Dismiss error"
+              aria-label="Lukk feilmeldingen"
             >
               <CloseIcon />
             </button>
@@ -450,7 +466,7 @@ export default function App() {
           }}
           {...dragHandlers}
           className="flex h-7 w-full shrink-0 touch-none items-center justify-center active:scale-100"
-          aria-label={expanded ? 'Collapse panel' : 'Expand panel'}
+          aria-label={expanded ? 'Lukk panelet' : 'Åpne panelet'}
           aria-expanded={expanded}
         >
           <span className="h-1.5 rounded-full bg-line transition-[width] duration-300" style={{ width: 40 + 16 * sheetOpenness }} />
@@ -463,12 +479,12 @@ export default function App() {
           >
             <div className="min-w-0 flex-1">
               <div className="truncate font-semibold">
-                {itemGear ? gearLabel(itemGear.gear_type) : 'Lost item'}
-                <span className="font-normal text-ink-3"> · this item only</span>
+                {itemGear ? gearLabel(itemGear.gear_type) : 'Tapt redskap'}
+                <span className="font-normal text-ink-3"> · bare dette</span>
               </div>
               {itemGear && (
                 <div className="truncate text-xs text-ink-3">
-                  Lost {formatDate(itemGear.lost_time.slice(0, 10))} · floats ~{Math.round(itemGear.float_prob * 100)} %
+                  Mistet {formatDate(itemGear.lost_time.slice(0, 10))} · flyter ca. {Math.round(itemGear.float_prob * 100)} %
                 </div>
               )}
             </div>
@@ -477,14 +493,20 @@ export default function App() {
               onClick={clearSelection}
               className="h-9 shrink-0 rounded-full bg-surface px-3 text-xs font-semibold text-ink shadow-sm"
             >
-              Show all items
+              Vis alle
             </button>
           </div>
         )}
 
         {shownCard && (
           <div
-            key={shownCard.kind === 'gear' ? shownCard.gear.id : shownCard.cell.properties.cell_id}
+            key={
+              shownCard.kind === 'gear'
+                ? shownCard.gear.id
+                : shownCard.kind === 'report'
+                  ? shownCard.report.id
+                  : shownCard.cell.properties.cell_id
+            }
             className={`shrink-0 border-b border-line ${cardLeaving ? 'pointer-events-none animate-fade-down-out' : 'animate-fade-up'}`}
           >
             <DetailCard
@@ -556,7 +578,7 @@ export default function App() {
             data-tour="panel"
             className="h-10 shrink-0 animate-fade-in touch-none border-t border-line text-sm font-medium text-ink-2 active:bg-surface-2"
           >
-            Hotspots · Layers · Legend <span aria-hidden="true">⌃</span>
+            Hotspots · Kartlag · Forklaring <span aria-hidden="true">⌃</span>
           </button>
         )}
       </section>
@@ -564,7 +586,7 @@ export default function App() {
       <nav
         className="z-[1001] flex shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]"
         data-tour="nav"
-        aria-label="Main menu"
+        aria-label="Hovedmeny"
       >
         <button
           type="button"
@@ -576,7 +598,7 @@ export default function App() {
           aria-current={overlay === null ? 'page' : undefined}
         >
           <HomeIcon />
-          Home
+          Hjem
         </button>
         {NAV.map(({ screen, label, Icon }) => (
           <button
@@ -597,9 +619,15 @@ export default function App() {
 
       {shownOverlay === 'guide' && <Guide onClose={closeOverlay} leaving={overlayLeaving} />}
       {NAV.map(
-        ({ screen, label, Icon, text }) =>
+        ({ screen, title, Icon }) =>
           shownOverlay === screen && (
-            <ComingSoon key={screen} title={label} icon={<Icon />} text={text} onClose={closeOverlay} leaving={overlayLeaving} />
+            <Screen key={screen} title={title} icon={<Icon />} onClose={closeOverlay} leaving={overlayLeaving}>
+              {screen === 'report' && (
+                <Report game={game} index={index} gear={gear} coast={coast} onShowOnMap={showReportOnMap} />
+              )}
+              {screen === 'leaderboard' && <Leaderboard game={game} />}
+              {screen === 'profile' && <Profile game={game} />}
+            </Screen>
           ),
       )}
     </div>

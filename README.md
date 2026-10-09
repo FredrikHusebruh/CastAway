@@ -86,6 +86,7 @@ Other helper scripts:
 | `GET /api/drift?ids=a,b&date=YYYY-MM-DD` | drift-likelihood heat map for up to 25 items up to that date: `cells` = `[lat, lon, relative likelihood 0–1]` on a 2 km grid |
 | `GET /api/net/{id}/beaching?date=YYYY-MM-DD` | where ONE item is likely to wash ashore in the 7 days up to that date: cells with its total chance (float probability included) plus `chance_total` |
 | `GET /api/net/{id}/track?date=YYYY-MM-DD` | hourly particle-centroid track of one net, up to that date |
+| `GET /api/coast` | `coast.json`: the ~1 km cells of the region that contain coast (from OpenDrift's landmask); the app uses it to reject reports far from the coast |
 
 **Runtime** (measured on East Finnmark, 111 items × 200 particles, Windows laptop):
 
@@ -104,7 +105,7 @@ With the forcing cached, a full run takes about 6–7 minutes. To shorten it, lo
 The public site is **fully static**. GitHub Actions (`.github/workflows/ci-cd.yml`) does the work:
 
 ```
-push to Main / every morning ─► tests + builds (mobile/ app, frontend/ debug map) ─► run_forecast.py ─► site/ (app + data/ + debug/) ─► FTP ─► public_html/castaway/
+push to Main / every morning ─► tests + builds (mobile/ app, frontend/ debug map) ─► run_forecast.py ─► site/ (app + data/ + debug/) ─► FTP ─► public_html/castaway/ (castaway.kiforbedrifter.no)
 ```
 
 - **Every push and pull request:** backend `ruff` + `pytest`, and lint + build of the app (`mobile/`) and the debug map (`frontend/`).
@@ -112,7 +113,7 @@ push to Main / every morning ─► tests + builds (mobile/ app, frontend/ debug
   1. Run the forecast on GitHub's computers. The NorKyst ocean data is cached between runs.
   2. Build the site with the forecast files in `data/`.
   3. Put the **app** (`mobile/`, used on phones and PCs) at the site root, and the **debug map** (`frontend/`) in `debug/`. The debug map reads the same `../data` files (`VITE_DATA_URL`), so they are uploaded only once.
-  4. Upload everything by FTP to `public_html/castaway/`, so the app is at `https://<your domain>/castaway/` and the debug map at `…/castaway/debug/`.
+  4. Upload everything by FTP to `public_html/castaway/`, so the app is at https://castaway.kiforbedrifter.no/ and the debug map at `/debug/`. The FTP account's home folder already is `public_html`, so the workflow sets `server-dir: castaway/`.
 - **The upload is a sync.** Only new or changed files are sent, and files no longer in the build are removed. The action keeps `.ftp-deploy-sync-state.json` on the server to track this.
 - **Static mode** (`VITE_STATIC=true`): the frontend reads `data/*.json|geojson` instead of the FastAPI server. The server logic that combines per-item files (paths, drift, one-item beaching) is reproduced in `frontend/src/staticData.ts`, which must match `aggregate.py`.
 - `vite.config.ts` uses `base: './'`, so the site works in the `castaway/` subfolder. `public/.htaccess` makes browsers re-check the forecast files.
@@ -183,6 +184,35 @@ Each region downloads and caches its own ocean data the first time it runs.
    - The drift heat map (2 km cells, viridis) is interpolated the same way.
    - Stranded particles on the drift paths are 100 m squares, one per spot.
 
+## Reporting and points (the app)
+
+The app's bottom menu has **Rapportering** (report), **Toppliste** (leaderboard) and **Profil** (profile). Everything is stored on the device; nothing is uploaded.
+
+| Action | Points |
+|---|---|
+| Report found gear (photo + GPS + type) | 10 |
+| … found in a forecast hotspot (medium chance or more) | +5 |
+| … matches a loss reported to BarentsWatch | +15 |
+| Remove and hand in the gear (photo at reception) | +20 |
+| "Checked, nothing here" in a hotspot | 3 |
+| Clean-up event (per participant, max 50) | 10 |
+| First find on a stretch of coast (5 km) this season | +10 |
+| Every week with at least one approved action (streak) | +5 |
+
+**How reports are checked:**
+- The photo must be taken in the app, and it is stamped with the GPS position (±100 m or better) and the time.
+- Reports are rejected if they are more than 2 km from the coast (using `coast.json`), or if there are more than 3 finds from the same spot within an hour.
+- The same gear type within 200 m and 48 h is merged; the duplicate gets 3 points.
+- At most 100 points a day.
+- A new user's points are provisional until 3 reports are approved; after that, reports are approved straight away.
+
+**Seasons, boards and badges:**
+- Seasons are calendar quarters, and the all-time total is kept.
+- There are boards for people, teams (school class, sports club, company) and municipalities.
+- The badges are «Første garn», «Hotspot-jeger», «100 kg fjernet» and «Bekreftet tapt redskap».
+
+The rules are in `mobile/src/game/rules.ts`, tested by `npm test`.
+
 ## Known limitations and shortcuts
 
 - **Most lost gear sinks.** Pots and long lines usually stay on the bottom, and the float probabilities are rough guesses. Treat `expected_nets` as a relative risk index, not a count.
@@ -197,7 +227,14 @@ Each region downloads and caches its own ocean data the first time it runs.
 - **Coast cells** are a regular lon/lat grid; only cells that receive strandings are shown, so they follow the coastline. The coastline is OpenDrift's GSHHG landmask, which misses small skerries and fine fjord detail.
 - **Days are UTC days.**
 - **Drift heat map:** cells are 2 km, so cells on the shoreline can overlap land. Likelihood is relative (the top cell = 1), not an absolute probability. The older centroid track endpoint (`/api/net/{id}/track`) is still served but no longer drawn.
-- **Not built** (out of scope): user accounts, reporting found nets, notifications, deployment. `api.py` marks an extension point for a `found_reports` layer.
+- **Reporting and points are local only.** Reports, photos and points stay on the user's device:
+  - The leaderboard compares the user with made-up demo participants.
+  - Approval is done by a "Demo-moderator" in the profile.
+  - Duplicates, spam checks and "first find on a stretch" only see the device's own reports.
+  - Teams and municipalities come from the profile, not from the report position.
+
+  A shared version would need a server, accounts and moderation.
+- **Not built** (out of scope): user accounts, a shared leaderboard, notifications.
 
 ## Licences and attribution
 

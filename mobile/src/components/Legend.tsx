@@ -1,6 +1,7 @@
 import {
   DRIFT_RAMP,
   GEAR_COLOR,
+  REPORT_COLOR,
   RAMP,
   RAMP_OPACITY,
   SELECTED_COLOR,
@@ -38,52 +39,58 @@ export default function Legend({ breaks, windowDays, windageFactors, layers, ite
       <div className="space-y-1">
         <div className={heading}>
           {itemMode
-            ? `Chance this item washes ashore per ~1 km, ${windowDays} days`
-            : `Expected nets per ~1 km of coast, ${windowDays} days`}
+            ? `Sjanse for at redskapet driver i land per ~1 km, ${windowDays} dager`
+            : `Forventede garn per ~1 km kyst, ${windowDays} dager`}
         </div>
         <div className="h-3 rounded-sm" style={{ background: gradient(RAMP, RAMP_OPACITY) }} />
         <div className="flex justify-between text-xs text-ink-3">
           <span>≤ {itemMode ? formatPercent(lo) : formatNets(lo)}</span>
-          <span>log scale</span>
+          <span>log-skala</span>
           <span>≥ {itemMode ? formatPercent(hi) : formatNets(hi)}</span>
         </div>
       </div>
       {layers.paths && (
         <div className="space-y-1">
-          <div className={heading}>Particle paths · wind push (windage)</div>
+          <div className={heading}>Partikkelbaner · vindpåvirkning</div>
           <ul className="grid grid-cols-2 gap-x-3 gap-y-1">
             {windageFactors.map((f) => (
               <li key={f} className="flex items-center gap-2 text-ink-2">
                 <span className="h-0.5 w-5" style={{ background: windageColor(f, windageFactors) }} />
-                {Math.round(f * 100)}%{f === 0 ? ' (current only)' : ''}
+                {Math.round(f * 100)}%{f === 0 ? ' (bare strøm)' : ''}
               </li>
             ))}
           </ul>
           <div className="flex items-center gap-2 text-ink-2">
             <span className="h-2 w-2" style={{ background: STRANDED_COLOR }} /> {/* square, as on the map */}
-            Washed ashore
+            Drevet i land
           </div>
         </div>
       )}
       {layers.drift && (
         <div className="space-y-1">
-          <div className={heading}>Where selected items drift</div>
+          <div className={heading}>Hvor valgte redskap driver</div>
           <div className="h-3 rounded-sm" style={{ background: gradient(DRIFT_RAMP) }} />
           <div className="flex justify-between text-xs text-ink-3">
-            <span>Less likely</span>
-            <span>More likely</span>
+            <span>Mindre sannsynlig</span>
+            <span>Mer sannsynlig</span>
           </div>
         </div>
       )}
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-ink-2">
         <span className="flex items-center gap-2">
           <span className="h-2.5 w-2.5 rounded-full ring-1 ring-white" style={{ background: GEAR_COLOR }} />
-          Lost gear
+          Tapt redskap
         </span>
         <span className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-full ring-2 ring-white" style={{ background: SELECTED_COLOR }} />
-          Selected
+          Valgt
         </span>
+        {layers.reports && (
+          <span className="flex items-center gap-2">
+            <span className="h-3 w-3 rounded-full ring-2 ring-white" style={{ background: REPORT_COLOR }} />
+            Mine funn
+          </span>
+        )}
       </div>
     </div>
   )
