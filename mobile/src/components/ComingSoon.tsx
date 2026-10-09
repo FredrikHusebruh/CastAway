@@ -14,9 +14,9 @@ interface Props {
  */
 export default function ComingSoon({ title, icon, text, onClose }: Props) {
   return (
-    <div className="fixed inset-0 z-[3000] flex items-end bg-black/50" role="dialog" aria-modal="true" onClick={onClose}>
+    <div className="fixed inset-0 z-[3000] flex animate-fade-in items-end bg-black/50" role="dialog" aria-modal="true" onClick={onClose}>
       <div
-        className="relative w-full rounded-t-2xl bg-surface px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 text-ink"
+        className="relative w-full animate-sheet-up rounded-t-3xl bg-surface px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 text-ink"
         onClick={(e) => e.stopPropagation()}
       >
         <button

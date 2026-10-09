@@ -19,9 +19,11 @@ import Guide from './components/Guide'
 import ComingSoon from './components/ComingSoon'
 import { CloseIcon, HelpIcon, HomeIcon, LeaderboardIcon, ProfileIcon, ReportIcon } from './components/Icons'
 import MapView, { type Layers, type Picked } from './components/Map'
-import SheetTabs, { type Tab } from './components/Sheet'
+import SheetTabs, { type Hotspot, type HotspotSort, type Tab } from './components/Sheet'
+import { distanceKm, ringCenter } from './format'
 
 const MAX_DRIFT_NETS = 25 // matches the API cap per /api/drift request
+const N_HOTSPOTS = 5
 const DEFAULT_WINDOW_DAYS = 7
 const DEFAULT_WINDAGE = [0, 0.01, 0.02, 0.03]
 
@@ -32,7 +34,8 @@ function defaultDate(index: IndexInfo): string {
 
 const floatingBtn =
   'pointer-events-auto grid h-11 min-w-11 place-items-center rounded-full bg-surface px-3 text-sm font-medium text-ink shadow-md active:opacity-80'
-const navBtn = 'flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium active:bg-surface-2'
+const navBtn =
+  'flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors duration-200 active:bg-surface-2'
 
 // Bottom-bar screens other than the map. All are placeholders for now: accounts, leaderboards and
 // found-net reporting are out of scope for the prototype (CLAUDE.md), so these are the extension points.
@@ -72,6 +75,10 @@ export default function App() {
   const [picked, setPicked] = useState<Picked | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [sheetTab, setSheetTab] = useState<Tab>('Hotspots')
+  const [hotspotSort, setHotspotSort] = useState<HotspotSort>('nets')
+  const [userPos, setUserPos] = useState<[number, number] | null>(null)
+  const [locating, setLocating] = useState(false)
+  const [locError, setLocError] = useState<string | null>(null)
   const [overlay, setOverlay] = useState<'guide' | Screen | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const onMapReady = useCallback((map: L.Map) => {
@@ -168,10 +175,37 @@ export default function App() {
   }
   const closeOverlay = useCallback(() => setOverlay(null), [])
 
-  const hotspots = useMemo(
-    () => [...(cells?.features ?? [])].sort((a, b) => b.properties.expected_nets - a.properties.expected_nets).slice(0, 5),
-    [cells],
-  )
+  /** "Nearest me" needs the phone's position; browsers only share it on https or localhost. */
+  const sortHotspots = (sort: HotspotSort) => {
+    setLocError(null)
+    if (sort === 'nets' || userPos) return setHotspotSort(sort)
+    if (!window.isSecureContext || !navigator.geolocation) {
+      return setLocError('Location only works over https (or on localhost).')
+    }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserPos([pos.coords.latitude, pos.coords.longitude])
+        setHotspotSort('near')
+        setLocating(false)
+      },
+      (err) => {
+        setLocError(err.code === err.PERMISSION_DENIED ? 'Location access was denied.' : 'Could not find your location.')
+        setLocating(false)
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
+    )
+  }
+
+  const hotspots: Hotspot[] = useMemo(() => {
+    const all = (cells?.features ?? []).map((cell) => ({
+      cell,
+      km: userPos ? distanceKm(userPos, ringCenter(cell.geometry.coordinates[0])) : null,
+    }))
+    const byNets = (x: Hotspot, y: Hotspot) => y.cell.properties.expected_nets - x.cell.properties.expected_nets
+    const byKm = (x: Hotspot, y: Hotspot) => (x.km ?? 0) - (y.km ?? 0)
+    return all.sort(hotspotSort === 'near' && userPos ? byKm : byNets).slice(0, N_HOTSPOTS)
+  }, [cells, userPos, hotspotSort])
 
   if (error && !index) {
     return (
@@ -249,12 +283,13 @@ export default function App() {
           picked={picked}
           layers={layers}
           focus={focus}
+          userPos={userPos}
           onMapReady={onMapReady}
           onPick={pick}
         />
         <div className="pointer-events-none absolute inset-x-3 top-3 z-[1000] flex items-start justify-end gap-2">
           {selectedNets.length > 0 && (
-            <button type="button" className={floatingBtn} onClick={() => setSelectedNets([])}>
+            <button type="button" className={`${floatingBtn} animate-fade-in`} onClick={() => setSelectedNets([])}>
               Drift: {selectedNets.length} item{selectedNets.length === 1 ? '' : 's'} ✕
             </button>
           )}
@@ -263,7 +298,7 @@ export default function App() {
           // a request after start-up failed (e.g. drift paths); the map keeps working, so just say so
           <div
             role="alert"
-            className="absolute inset-x-3 bottom-10 z-[1000] flex items-center gap-2 rounded-xl bg-red-700 py-2 pl-3 pr-1 text-sm text-white shadow-md"
+            className="absolute inset-x-3 bottom-14 animate-fade-up z-[1000] flex items-center gap-2 rounded-xl bg-red-700 py-2 pl-3 pr-1 text-sm text-white shadow-md"
           >
             <span className="min-w-0 flex-1">Could not load part of the forecast. Check the connection and try again.</span>
             <button
@@ -278,10 +313,7 @@ export default function App() {
         )}
       </main>
 
-      <section
-        className="z-[1001] flex min-h-0 flex-col rounded-t-2xl border-t border-line bg-surface shadow-[0_-4px_16px_rgba(0,0,0,0.12)]"
-        style={expanded ? { height: '60dvh' } : undefined}
-      >
+      <section className="relative z-[1001] -mt-(--sheet-overlap) flex min-h-0 flex-col rounded-t-3xl bg-surface shadow-[0_-6px_20px_rgba(0,0,0,0.14)]">
         <button
           type="button"
           onClick={() => setExpanded((x) => !x)}
@@ -289,11 +321,11 @@ export default function App() {
           aria-label={expanded ? 'Collapse panel' : 'Expand panel'}
           aria-expanded={expanded}
         >
-          <span className="h-1.5 w-10 rounded-full bg-line" />
+          <span className={`h-1.5 rounded-full bg-line transition-all duration-300 ${expanded ? 'w-14' : 'w-10'}`} />
         </button>
 
         {picked && (
-          <div className="shrink-0 border-b border-line">
+          <div key={picked.kind === 'gear' ? picked.gear.id : picked.cell.properties.cell_id} className="shrink-0 animate-fade-up border-b border-line">
             <DetailCard
               picked={picked}
               date={date}
@@ -315,26 +347,40 @@ export default function App() {
           />
         </div>
 
-        {expanded ? (
-          <SheetTabs
-            index={index}
-            windowDays={windowDays}
-            windageFactors={windageFactors}
-            hotspots={hotspots}
-            onFocus={focusHotspot}
-            layers={layers}
-            onToggleLayer={(layer) => setLayers((l) => ({ ...l, [layer]: !l[layer] }))}
-            nSelected={selectedNets.length}
-            onClearSelection={() => setSelectedNets([])}
-            tab={sheetTab}
-            onTabChange={setSheetTab}
-          />
-        ) : (
+        {/* grid-rows 0fr -> 1fr animates the panel open/closed without knowing its height */}
+        <div
+          className={`grid shrink-0 transition-[grid-template-rows] duration-300 ease-out ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+          inert={!expanded}
+        >
+          <div className="min-h-0 overflow-hidden">
+            {/* 60% of the screen, but always leave the map at least 30% (header + menu + date bar ≈ 14.5rem) */}
+            <div className={`flex h-[min(calc(60dvh-7.5rem),calc(70dvh-14.5rem))] flex-col transition-opacity duration-300 ${expanded ? 'opacity-100' : 'opacity-0'}`}>
+              <SheetTabs
+                index={index}
+                windowDays={windowDays}
+                windageFactors={windageFactors}
+                hotspots={hotspots}
+                hotspotSort={hotspotSort}
+                onHotspotSort={sortHotspots}
+                locating={locating}
+                locError={locError}
+                onFocus={focusHotspot}
+                layers={layers}
+                onToggleLayer={(layer) => setLayers((l) => ({ ...l, [layer]: !l[layer] }))}
+                nSelected={selectedNets.length}
+                onClearSelection={() => setSelectedNets([])}
+                tab={sheetTab}
+                onTabChange={setSheetTab}
+              />
+            </div>
+          </div>
+        </div>
+        {!expanded && (
           <button
             type="button"
             onClick={() => setExpanded(true)}
             data-tour="panel"
-            className="h-10 shrink-0 border-t border-line text-sm font-medium text-ink-2 active:bg-surface-2"
+            className="h-10 shrink-0 animate-fade-in border-t border-line text-sm font-medium text-ink-2 active:bg-surface-2"
           >
             Hotspots · Layers · Legend
           </button>

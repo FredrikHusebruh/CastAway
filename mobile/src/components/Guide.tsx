@@ -76,7 +76,7 @@ export default function Guide({ onClose }: { onClose: () => void }) {
       : { bottom: Math.max(window.innerHeight - rect.top + PAD + GAP, 16) }
 
   return (
-    <div className="fixed inset-0 z-[3000]" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+    <div className="fixed inset-0 z-[3000] animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="guide-title">
       {rect ? (
         <div
           className="pointer-events-none absolute rounded-xl ring-2 ring-accent transition-all duration-300"
@@ -93,7 +93,8 @@ export default function Guide({ onClose }: { onClose: () => void }) {
       )}
 
       <div
-        className="absolute inset-x-4 mx-auto max-w-sm rounded-2xl bg-surface p-4 text-ink shadow-xl"
+        key={i}
+        className="absolute inset-x-4 mx-auto max-w-sm animate-fade-up rounded-2xl bg-surface p-4 text-ink shadow-xl"
         style={cardPos}
       >
         <button

@@ -1,10 +1,20 @@
 import type { CellFeature, IndexInfo } from '../api'
-import { formatDateTime, formatNets, ringCenter } from '../format'
+import { formatDateTime, formatKm, formatNets, ringCenter } from '../format'
 import Legend from './Legend'
 import type { Layers } from './Map'
 
 const TABS = ['Hotspots', 'Layers', 'Legend', 'About'] as const
 export type Tab = (typeof TABS)[number]
+export type HotspotSort = 'nets' | 'near'
+export interface Hotspot {
+  cell: CellFeature
+  km: number | null // distance from the user, once their location is known
+}
+
+const SORTS: { sort: HotspotSort; label: string }[] = [
+  { sort: 'nets', label: 'Most nets' },
+  { sort: 'near', label: 'Nearest me' },
+]
 
 const LAYER_LABELS: Record<keyof Layers, string> = {
   beaching: 'Beaching forecast',
@@ -17,7 +27,11 @@ interface Props {
   index: IndexInfo
   windowDays: number
   windageFactors: number[]
-  hotspots: CellFeature[]
+  hotspots: Hotspot[]
+  hotspotSort: HotspotSort
+  onHotspotSort: (sort: HotspotSort) => void
+  locating: boolean
+  locError: string | null
   onFocus: (latLng: [number, number]) => void
   layers: Layers
   onToggleLayer: (layer: keyof Layers) => void
@@ -40,7 +54,7 @@ export default function SheetTabs(props: Props) {
             role="tab"
             aria-selected={tab === t}
             onClick={() => props.onTabChange(t)}
-            className={`h-11 flex-1 border-b-2 text-sm font-medium ${
+            className={`h-11 flex-1 border-b-2 text-sm font-medium transition-colors duration-200 ${
               tab === t ? 'border-accent text-ink' : 'border-transparent text-ink-3'
             }`}
           >
@@ -49,34 +63,60 @@ export default function SheetTabs(props: Props) {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
-        {tab === 'Hotspots' &&
-          (props.hotspots.length === 0 ? (
-            <p className="text-sm text-ink-3">No strandings expected in this period.</p>
-          ) : (
-            <>
-              <p className="mb-2 text-xs text-ink-3">Most likely to wash ashore · last {props.windowDays} days</p>
-              <ol className="divide-y divide-line">
-                {props.hotspots.map((f, k) => {
-                  const [lat, lng] = ringCenter(f.geometry.coordinates[0])
-                  return (
-                    <li key={f.properties.cell_id}>
-                      <button
-                        type="button"
-                        onClick={() => props.onFocus([lat, lng])}
-                        className="flex min-h-12 w-full items-center justify-between gap-2 text-left text-sm active:bg-surface-2"
-                      >
-                        <span className="text-ink-2">
-                          {k + 1}. {lat.toFixed(3)}°N {lng.toFixed(3)}°E
-                        </span>
-                        <span className="font-semibold tabular-nums">{formatNets(f.properties.expected_nets)} nets</span>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ol>
-            </>
-          ))}
+      <div key={tab} className="min-h-0 flex-1 animate-fade-in overflow-y-auto overscroll-contain px-4 py-3">
+        {tab === 'Hotspots' && (
+          <>
+            <div role="radiogroup" aria-label="Sort hotspots" className="mb-2 flex rounded-full bg-surface-2 p-1">
+              {SORTS.map(({ sort, label }) => (
+                <button
+                  key={sort}
+                  type="button"
+                  role="radio"
+                  aria-checked={props.hotspotSort === sort}
+                  onClick={() => props.onHotspotSort(sort)}
+                  className={`h-9 flex-1 rounded-full text-sm font-medium transition-colors duration-200 ${
+                    props.hotspotSort === sort ? 'bg-surface text-ink shadow-sm' : 'text-ink-3'
+                  }`}
+                >
+                  {sort === 'near' && props.locating ? 'Finding you…' : label}
+                </button>
+              ))}
+            </div>
+            {props.locError && <p className="mb-2 text-xs text-red-700">{props.locError}</p>}
+            {props.hotspots.length === 0 ? (
+              <p className="text-sm text-ink-3">No strandings expected in this period.</p>
+            ) : (
+              <>
+                <p className="mb-1 text-xs text-ink-3">
+                  {props.hotspotSort === 'near' ? 'Nearest to you' : 'Most likely to wash ashore'} · last{' '}
+                  {props.windowDays} days
+                </p>
+                <ol className="divide-y divide-line">
+                  {props.hotspots.map(({ cell: f, km }, k) => {
+                    const [lat, lng] = ringCenter(f.geometry.coordinates[0])
+                    return (
+                      <li key={f.properties.cell_id} className="animate-fade-in">
+                        <button
+                          type="button"
+                          onClick={() => props.onFocus([lat, lng])}
+                          className="flex min-h-12 w-full items-center justify-between gap-2 text-left text-sm active:bg-surface-2"
+                        >
+                          <span className="min-w-0 text-ink-2">
+                            {k + 1}. {lat.toFixed(3)}°N {lng.toFixed(3)}°E
+                            {km !== null && <span className="block text-xs text-ink-3">{formatKm(km)} away</span>}
+                          </span>
+                          <span className="shrink-0 font-semibold tabular-nums">
+                            {formatNets(f.properties.expected_nets)} nets
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ol>
+              </>
+            )}
+          </>
+        )}
 
         {tab === 'Layers' && (
           <ul className="divide-y divide-line">

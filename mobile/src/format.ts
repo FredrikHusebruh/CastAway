@@ -78,3 +78,16 @@ export function ringCenter(ring: number[][]): [number, number] {
   const lats = ring.map((p) => p[1])
   return [(Math.min(...lats) + Math.max(...lats)) / 2, (Math.min(...lons) + Math.max(...lons)) / 2]
 }
+
+/** Great-circle distance in km between two [lat, lng] points. */
+export function distanceKm([lat1, lng1]: [number, number], [lat2, lng2]: [number, number]): number {
+  const rad = Math.PI / 180
+  const a =
+    Math.sin(((lat2 - lat1) * rad) / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(((lng2 - lng1) * rad) / 2) ** 2
+  return 2 * 6371 * Math.asin(Math.sqrt(a))
+}
+
+export function formatKm(km: number): string {
+  return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`
+}

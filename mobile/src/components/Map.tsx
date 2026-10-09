@@ -38,6 +38,7 @@ interface Props {
   picked: Picked | null
   layers: Layers
   focus: [number, number] | null
+  userPos: [number, number] | null // shown as a 'you are here' dot once known
   onMapReady: (map: L.Map) => void // lets the Home button fly back to the region
   onPick: (picked: Picked | null) => void
 }
@@ -291,6 +292,14 @@ export default function MapView(props: Props) {
             />
           )
         })}
+      {props.userPos && (
+        <CircleMarker
+          center={props.userPos}
+          radius={8}
+          interactive={false}
+          pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }}
+        />
+      )}
     </MapContainer>
   )
 }

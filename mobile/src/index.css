@@ -56,6 +56,39 @@
   --color-accent: var(--accent);
 }
 
+/* Motion: short entrance animations for cards, sheets and overlays (used as animate-fade-in etc.). */
+@theme {
+  --animate-fade-in: fade-in 200ms ease-out;
+  --animate-fade-up: fade-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-sheet-up: sheet-up 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(100%);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 html,
 body,
 #root {
@@ -92,6 +125,16 @@ input[type='range']::-moz-range-thumb {
   height: 40px;
   line-height: 40px;
   font-size: 22px;
+}
+
+/* The bottom sheet overlaps the map by --sheet-overlap so its rounded corners show over the map;
+   lift Leaflet's bottom controls (the attribution) clear of it. */
+:root {
+  --sheet-overlap: 1.25rem;
+}
+
+.leaflet-bottom {
+  bottom: var(--sheet-overlap);
 }
 
 .leaflet-control-attribution {
