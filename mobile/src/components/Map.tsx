@@ -1,5 +1,5 @@
 import L from 'leaflet'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { CircleMarker, ImageOverlay, MapContainer, Marker, Pane, TileLayer, useMap, useMapEvents, ZoomControl } from 'react-leaflet'
 import type { CellCollection, CellFeature, DriftResponse, GearCollection, GearProps, ParticlePath } from '../api'
 import { GEAR_COLOR, SELECTED_COLOR, STRANDED_COLOR, beachingRGBA, driftRGBA, ringCenter, windageColor } from '../format'
@@ -274,6 +274,7 @@ function FitToPaths({ paths, selectionKey }: { paths: ParticlePath[] | null; sel
   const map = useMap()
   const fitted = useRef('')
   useEffect(() => {
+    if (!selectionKey) fitted.current = '' // cleared: zoom again when the same items are picked later
     if (!paths || paths.length === 0 || fitted.current === selectionKey) return
     fitted.current = selectionKey
     const bounds = L.latLngBounds(paths.flatMap((p) => p.coords))
@@ -313,7 +314,8 @@ function FlyTo({ focus }: { focus: [number, number] | null }) {
   return null
 }
 
-export default function MapView(props: Props) {
+/** Memoised: the bottom sheet re-renders App on every drag frame, which must not re-render the map. */
+export default memo(function MapView(props: Props) {
   const [w, s, e, n] = props.bbox
   const [zoom, setZoom] = useState(0)
   const pickedGearId = props.picked?.kind === 'gear' ? props.picked.gear.id : null
@@ -382,4 +384,4 @@ export default function MapView(props: Props) {
       <PickedPulse picked={props.picked} gear={props.gear} />
     </MapContainer>
   )
-}
+})

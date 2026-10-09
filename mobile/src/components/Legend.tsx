@@ -60,7 +60,7 @@ export default function Legend({ breaks, windowDays, windageFactors, layers, ite
             ))}
           </ul>
           <div className="flex items-center gap-2 text-ink-2">
-            <span className="h-2 w-2 rounded-full" style={{ background: STRANDED_COLOR }} />
+            <span className="h-2 w-2" style={{ background: STRANDED_COLOR }} /> {/* square, as on the map */}
             Washed ashore
           </div>
         </div>

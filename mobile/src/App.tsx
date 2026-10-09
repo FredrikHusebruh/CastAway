@@ -171,7 +171,7 @@ export default function App() {
         // a picked cell belongs to one date's 7-day window; drop it when the date changes
         setPicked((p) => (p?.kind === 'cell' ? null : p))
       })
-      .catch((e: Error) => setError(e.message))
+      .catch((e: Error) => !stale && setError(e.message))
     return () => {
       stale = true
     }
@@ -183,7 +183,7 @@ export default function App() {
     let stale = false
     track(fetchPaths(selectedNets, date))
       .then((p) => !stale && setPaths(p))
-      .catch((e: Error) => setError(e.message))
+      .catch((e: Error) => !stale && setError(e.message))
     return () => {
       stale = true
     }
@@ -194,7 +194,7 @@ export default function App() {
     let stale = false
     track(fetchDrift(selectedNets, date))
       .then((d) => !stale && setDrift(d))
-      .catch((e: Error) => setError(e.message))
+      .catch((e: Error) => !stale && setError(e.message))
     return () => {
       stale = true
     }
@@ -205,7 +205,11 @@ export default function App() {
     let stale = false
     track(fetchItemBeaching(itemId, date))
       .then((b) => !stale && setItemBeaching(b))
-      .catch((e: Error) => setError(e.message))
+      .catch((e: Error) => {
+        if (stale) return
+        setError(e.message)
+        setItemId(null) // back to the regional map rather than an empty one with an endless "…"
+      })
     return () => {
       stale = true
     }
@@ -239,6 +243,8 @@ export default function App() {
   const clearSelection = useCallback(() => {
     setItemId(null)
     setSelectedNets([])
+    // a coast-cell card from item focus holds that item's chance, not regional expected nets
+    setPicked((p) => (p?.kind === 'cell' ? null : p))
   }, [])
 
   const pick = useCallback((p: Picked | null) => {
@@ -300,8 +306,12 @@ export default function App() {
 
   const shownItem = itemBeaching && itemBeaching.id === itemId ? itemBeaching : null
   const shownCells = itemId ? shownItem : cells
-  const itemGear = itemId ? gear?.features.find((f) => f.properties.id === itemId)?.properties : undefined
+  const breaks = useMemo(() => index?.color_breaks ?? [], [index])
   const [shownItemBanner, itemBannerLeaving] = usePresence(itemId)
+  // from the banner's (exit-animation-retained) id, so the text stays put while it fades out
+  const itemGear = shownItemBanner
+    ? gear?.features.find((f) => f.properties.id === shownItemBanner)?.properties
+    : undefined
 
   const hotspots: Hotspot[] = useMemo(() => {
     const all = (shownCells?.features ?? []).map((cell) => ({
@@ -386,7 +396,7 @@ export default function App() {
           attribution={index.attribution}
           gear={gear}
           cells={shownCells}
-          breaks={index.color_breaks ?? []}
+          breaks={breaks}
           drift={shownDrift}
           paths={shownPaths}
           windageFactors={windageFactors}
