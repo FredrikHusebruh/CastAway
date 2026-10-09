@@ -1,0 +1,92 @@
+@import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
+
+/* Colour tokens. Beaching ramp: one orange hue, light -> dark, validated as an ordinal
+   ramp against the OSM basemap (lightest step >= 2:1). Orange, not blue, so cells don't
+   blend into the blue sea. */
+:root {
+  color-scheme: light;
+  --surface: #ffffff;
+  --surface-2: #f5f5f4;
+  --border: #e7e5e4;
+  --text-primary: #0c0a09;
+  --text-secondary: #57534e;
+  --text-muted: #78716c;
+  --accent: #c24a1c;
+  --gear: #1e293b;
+  --track: #4a3aa7;
+  --ramp-1: #ef8a55;
+  --ramp-2: #e2622c;
+  --ramp-3: #c24a1c;
+  --ramp-4: #963511;
+  --ramp-5: #6b2208;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --surface: #1a1a19;
+    --surface-2: #262624;
+    --border: #3a3a37;
+    --text-primary: #fafaf9;
+    --text-secondary: #c3c2b7;
+    --text-muted: #a8a29e;
+    --accent: #ef8a55;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --surface: #1a1a19;
+  --surface-2: #262624;
+  --border: #3a3a37;
+  --text-primary: #fafaf9;
+  --text-secondary: #c3c2b7;
+  --text-muted: #a8a29e;
+  --accent: #ef8a55;
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-ink: var(--text-primary);
+  --color-ink-2: var(--text-secondary);
+  --color-ink-3: var(--text-muted);
+  --color-accent: var(--accent);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior: none; /* no pull-to-refresh / rubber-banding behind the map */
+}
+
+body {
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Bigger slider thumb for thumbs. */
+input[type='range'] {
+  height: 2rem;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.leaflet-control-attribution {
+  font-size: 10px;
+  line-height: 1.3;
+}
