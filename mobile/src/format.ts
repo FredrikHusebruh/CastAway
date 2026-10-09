@@ -72,6 +72,21 @@ export function formatDateTime(iso: string): string {
   })
 }
 
+/** Short UTC timestamp for the header, e.g. "9 Oct, 06:00 UTC". */
+export function formatUpdated(iso: string): string {
+  const d = new Date(iso)
+  const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+  return `${day}, ${time} UTC`
+}
+
+/** Directions link to a point: Apple Maps on iPhone/iPad, Google Maps elsewhere. */
+export function directionsUrl([lat, lng]: [number, number]): string {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent)
+    ? `https://maps.apple.com/?daddr=${lat},${lng}`
+    : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+}
+
 /** Centre of a polygon ring as [lat, lng]. */
 export function ringCenter(ring: number[][]): [number, number] {
   const lons = ring.map((p) => p[0])

@@ -1,4 +1,4 @@
-import { formatDateTime, formatNets, gearLabel } from '../format'
+import { directionsUrl, formatDateTime, formatNets, gearLabel, ringCenter } from '../format'
 import type { Picked } from './Map'
 
 interface Props {
@@ -46,13 +46,23 @@ export default function DetailCard({ picked, date, windowDays, onShowDrift, onCl
             from {picked.cell.properties.n_nets} lost item{picked.cell.properties.n_nets === 1 ? '' : 's'} ·{' '}
             {picked.cell.properties.particle_count} particles
           </div>
-          <button
-            type="button"
-            className={action}
-            onClick={() => onShowDrift(picked.cell.properties.contributing_net_ids)}
-          >
-            Show where these drifted
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`${action} flex-1`}
+              onClick={() => onShowDrift(picked.cell.properties.contributing_net_ids)}
+            >
+              Show where these drifted
+            </button>
+            <a
+              href={directionsUrl(ringCenter(picked.cell.geometry.coordinates[0]))}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 grid h-11 shrink-0 place-items-center rounded-xl border border-line px-4 text-sm font-semibold text-ink active:bg-surface-2"
+            >
+              Directions
+            </a>
+          </div>
         </>
       )}
     </div>

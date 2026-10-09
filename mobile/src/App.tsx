@@ -20,10 +20,12 @@ import ComingSoon from './components/ComingSoon'
 import { CloseIcon, HelpIcon, HomeIcon, LeaderboardIcon, ProfileIcon, ReportIcon } from './components/Icons'
 import MapView, { type Layers, type Picked } from './components/Map'
 import SheetTabs, { type Hotspot, type HotspotSort, type Tab } from './components/Sheet'
-import { distanceKm, ringCenter } from './format'
+import { distanceKm, formatUpdated, ringCenter } from './format'
+import { haptic, usePresence, useSheetDrag } from './motion'
 
 const MAX_DRIFT_NETS = 25 // matches the API cap per /api/drift request
 const N_HOTSPOTS = 5
+const STALE_AFTER_MS = 24 * 3600 * 1000 // forecasts older than this get an "outdated" warning
 const DEFAULT_WINDOW_DAYS = 7
 const DEFAULT_WINDAGE = [0, 0.01, 0.02, 0.03]
 
@@ -61,6 +63,38 @@ const NAV: { screen: Screen; label: string; Icon: () => JSX.Element; text: strin
   },
 ]
 
+/** Grey outline of the app with a shimmer while the forecast loads. */
+function LoadingSkeleton() {
+  return (
+    <div className="flex h-dvh flex-col bg-surface" aria-busy="true" aria-label="Loading forecast">
+      <div className="space-y-1.5 border-b border-line px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <div className="shimmer h-5 w-28 rounded" />
+        <div className="shimmer h-3 w-44 rounded" />
+      </div>
+      <div className="shimmer flex-1" />
+      <div className="-mt-5 space-y-3 rounded-t-3xl bg-surface px-4 pb-4 pt-6">
+        <div className="flex items-center gap-3">
+          <div className="shimmer h-11 w-11 rounded-full" />
+          <div className="flex-1 space-y-1.5">
+            <div className="shimmer mx-auto h-4 w-32 rounded" />
+            <div className="shimmer mx-auto h-3 w-40 rounded" />
+          </div>
+          <div className="shimmer h-11 w-11 rounded-full" />
+        </div>
+        <div className="shimmer h-2 rounded-full" />
+      </div>
+      <div className="flex h-14 border-t border-line pb-[env(safe-area-inset-bottom)]">
+        {[0, 1, 2, 3].map((k) => (
+          <div key={k} className="flex flex-1 flex-col items-center justify-center gap-1">
+            <div className="shimmer h-5 w-5 rounded" />
+            <div className="shimmer h-2 w-10 rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [index, setIndex] = useState<IndexInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -80,7 +114,32 @@ export default function App() {
   const [locating, setLocating] = useState(false)
   const [locError, setLocError] = useState<string | null>(null)
   const [overlay, setOverlay] = useState<'guide' | Screen | null>(null)
+  const [outdated, setOutdated] = useState(false) // forecast run older than STALE_AFTER_MS
+  const [pending, setPending] = useState(0) // requests in flight, for the loading bar
   const mapRef = useRef<L.Map | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [panelHeight, setPanelHeight] = useState(0)
+  const { dragHeight, dragHandlers } = useSheetDrag(expanded, setExpanded, panelRef)
+  const [shownCard, cardLeaving] = usePresence(picked)
+  const [shownOverlay, overlayLeaving] = usePresence(overlay)
+  const [shownError, errorLeaving] = usePresence(index ? error : null)
+  const [shownDriftCount, chipLeaving] = usePresence(selectedNets.length || null)
+
+  /** Counts a request for the loading bar while it is in flight. */
+  const track = useCallback(<T,>(request: Promise<T>): Promise<T> => {
+    // counted a microtask later so the effects that start requests don't set state synchronously
+    void Promise.resolve().then(() => setPending((n) => n + 1))
+    return request.finally(() => void Promise.resolve().then(() => setPending((n) => n - 1)))
+  }, [])
+
+  // the open panel's height, re-measured when the screen size changes
+  useEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setPanelHeight(el.offsetHeight))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [index])
   const onMapReady = useCallback((map: L.Map) => {
     mapRef.current = map
   }, [])
@@ -89,6 +148,7 @@ export default function App() {
     Promise.all([fetchIndex(), fetchGear()])
       .then(([idx, g]) => {
         setIndex(idx)
+        setOutdated(Date.now() - new Date(idx.run_timestamp).getTime() > STALE_AFTER_MS)
         setGear(g)
         setDate(defaultDate(idx))
       })
@@ -98,7 +158,7 @@ export default function App() {
   useEffect(() => {
     if (!date) return
     let stale = false
-    fetchBeaching(date)
+    track(fetchBeaching(date))
       .then((c) => {
         if (stale) return
         setCells(c)
@@ -109,30 +169,30 @@ export default function App() {
     return () => {
       stale = true
     }
-  }, [date])
+  }, [date, track])
 
   // particle paths and (if shown) the drift heat map for the selected nets, up to the selected date
   useEffect(() => {
     if (!date || selectedNets.length === 0) return
     let stale = false
-    fetchPaths(selectedNets, date)
+    track(fetchPaths(selectedNets, date))
       .then((p) => !stale && setPaths(p))
       .catch((e: Error) => setError(e.message))
     return () => {
       stale = true
     }
-  }, [selectedNets, date])
+  }, [selectedNets, date, track])
 
   useEffect(() => {
     if (!date || selectedNets.length === 0 || !layers.drift) return
     let stale = false
-    fetchDrift(selectedNets, date)
+    track(fetchDrift(selectedNets, date))
       .then((d) => !stale && setDrift(d))
       .catch((e: Error) => setError(e.message))
     return () => {
       stale = true
     }
-  }, [selectedNets, date, layers.drift])
+  }, [selectedNets, date, layers.drift, track])
 
   const showDrift = useCallback((ids: string[]) => {
     setSelectedNets(ids.slice(0, MAX_DRIFT_NETS))
@@ -142,6 +202,7 @@ export default function App() {
   }, [])
 
   const pick = useCallback((p: Picked | null) => {
+    if (p) haptic()
     setPicked(p)
     if (p) setExpanded(false)
   }, [])
@@ -225,20 +286,24 @@ export default function App() {
       </div>
     )
   }
-  if (!index) return <div className="grid h-dvh place-items-center text-ink-2">Loading forecast…</div>
+  if (!index) return <LoadingSkeleton />
 
   const windowDays = index.beaching_window_days ?? DEFAULT_WINDOW_DAYS
   const windageFactors = index.wind_drift_factors ?? DEFAULT_WINDAGE
   // only show a heat map / paths that belong to the current selection (hides stale/cleared ones)
   const shownDrift = drift && drift.ids.join() === selectedNets.join() ? drift : null
   const shownPaths = paths && paths.ids.join() === selectedNets.join() ? paths.paths : null
+  const sheetOpenness = dragHeight === null ? (expanded ? 1 : 0) : Math.min(dragHeight / Math.max(panelHeight, 1), 1)
 
   return (
     <div className="flex h-dvh flex-col bg-surface text-ink">
       <header className="flex items-center justify-between gap-2 border-b border-line px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <div className="min-w-0">
           <h1 className="text-lg font-bold leading-tight tracking-tight">CastAway</h1>
-          <p className="truncate text-xs text-ink-2">Where will lost fishing gear wash ashore?</p>
+          <p className="truncate text-xs text-ink-2">
+            Updated {formatUpdated(index.run_timestamp)}
+            {outdated && <span className="ml-1 font-semibold text-amber-700">· outdated</span>}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {index.gear_source === 'mock' && (
@@ -288,17 +353,24 @@ export default function App() {
           onPick={pick}
         />
         <div className="pointer-events-none absolute inset-x-3 top-3 z-[1000] flex items-start justify-end gap-2">
-          {selectedNets.length > 0 && (
-            <button type="button" className={`${floatingBtn} animate-fade-in`} onClick={() => setSelectedNets([])}>
-              Drift: {selectedNets.length} item{selectedNets.length === 1 ? '' : 's'} ✕
+          {shownDriftCount && (
+            <button
+              type="button"
+              className={`${floatingBtn} ${chipLeaving ? 'pointer-events-none animate-fade-out' : 'animate-fade-in'}`}
+              onClick={() => setSelectedNets([])}
+            >
+              Drift: {shownDriftCount} item{shownDriftCount === 1 ? '' : 's'} ✕
             </button>
           )}
         </div>
-        {error && (
+        {pending > 0 && (
+          <div className="loading-bar absolute inset-x-0 top-0 z-[1000] h-1 overflow-hidden" role="progressbar" aria-label="Loading" />
+        )}
+        {shownError && (
           // a request after start-up failed (e.g. drift paths); the map keeps working, so just say so
           <div
             role="alert"
-            className="absolute inset-x-3 bottom-14 animate-fade-up z-[1000] flex items-center gap-2 rounded-xl bg-red-700 py-2 pl-3 pr-1 text-sm text-white shadow-md"
+            className={`absolute inset-x-3 bottom-14 z-[1000] ${errorLeaving ? 'pointer-events-none animate-fade-down-out' : 'animate-fade-up'} flex items-center gap-2 rounded-xl bg-red-700 py-2 pl-3 pr-1 text-sm text-white shadow-md`}
           >
             <span className="min-w-0 flex-1">Could not load part of the forecast. Check the connection and try again.</span>
             <button
@@ -316,18 +388,25 @@ export default function App() {
       <section className="relative z-[1001] -mt-(--sheet-overlap) flex min-h-0 flex-col rounded-t-3xl bg-surface shadow-[0_-6px_20px_rgba(0,0,0,0.14)]">
         <button
           type="button"
-          onClick={() => setExpanded((x) => !x)}
-          className="flex h-6 w-full shrink-0 items-center justify-center"
+          onClick={() => {
+            haptic()
+            setExpanded((x) => !x)
+          }}
+          {...dragHandlers}
+          className="flex h-7 w-full shrink-0 touch-none items-center justify-center active:scale-100"
           aria-label={expanded ? 'Collapse panel' : 'Expand panel'}
           aria-expanded={expanded}
         >
-          <span className={`h-1.5 rounded-full bg-line transition-all duration-300 ${expanded ? 'w-14' : 'w-10'}`} />
+          <span className="h-1.5 rounded-full bg-line transition-[width] duration-300" style={{ width: 40 + 16 * sheetOpenness }} />
         </button>
 
-        {picked && (
-          <div key={picked.kind === 'gear' ? picked.gear.id : picked.cell.properties.cell_id} className="shrink-0 animate-fade-up border-b border-line">
+        {shownCard && (
+          <div
+            key={shownCard.kind === 'gear' ? shownCard.gear.id : shownCard.cell.properties.cell_id}
+            className={`shrink-0 border-b border-line ${cardLeaving ? 'pointer-events-none animate-fade-down-out' : 'animate-fade-up'}`}
+          >
             <DetailCard
-              picked={picked}
+              picked={shownCard}
               date={date}
               windowDays={windowDays}
               onShowDrift={showDrift}
@@ -347,14 +426,19 @@ export default function App() {
           />
         </div>
 
-        {/* grid-rows 0fr -> 1fr animates the panel open/closed without knowing its height */}
+        {/* follows the finger while dragging, otherwise animates between closed (0) and the open height */}
         <div
-          className={`grid shrink-0 transition-[grid-template-rows] duration-300 ease-out ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+          className={`shrink-0 overflow-hidden ${dragHeight === null ? 'transition-[height] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]' : ''}`}
+          style={{ height: dragHeight ?? (expanded ? panelHeight : 0) }}
           inert={!expanded}
         >
-          <div className="min-h-0 overflow-hidden">
+          <div>
             {/* 60% of the screen, but always leave the map at least 30% (header + menu + date bar ≈ 14.5rem) */}
-            <div className={`flex h-[min(calc(60dvh-7.5rem),calc(70dvh-14.5rem))] flex-col transition-opacity duration-300 ${expanded ? 'opacity-100' : 'opacity-0'}`}>
+            <div
+              ref={panelRef}
+              className={`flex h-[min(calc(60dvh-7.5rem),calc(70dvh-14.5rem))] flex-col ${dragHeight === null ? 'transition-opacity duration-300' : ''}`}
+              style={{ opacity: sheetOpenness }}
+            >
               <SheetTabs
                 index={index}
                 windowDays={windowDays}
@@ -378,11 +462,15 @@ export default function App() {
         {!expanded && (
           <button
             type="button"
-            onClick={() => setExpanded(true)}
+            onClick={() => {
+              haptic()
+              setExpanded(true)
+            }}
+            {...dragHandlers}
             data-tour="panel"
-            className="h-10 shrink-0 animate-fade-in border-t border-line text-sm font-medium text-ink-2 active:bg-surface-2"
+            className="h-10 shrink-0 animate-fade-in touch-none border-t border-line text-sm font-medium text-ink-2 active:bg-surface-2"
           >
-            Hotspots · Layers · Legend
+            Hotspots · Layers · Legend <span aria-hidden="true">⌃</span>
           </button>
         )}
       </section>
@@ -395,7 +483,10 @@ export default function App() {
         <button
           type="button"
           className={`${navBtn} ${overlay === null || overlay === 'guide' ? 'text-accent' : 'text-ink-2'}`}
-          onClick={goHome}
+          onClick={() => {
+            haptic()
+            goHome()
+          }}
           aria-current={overlay === null ? 'page' : undefined}
         >
           <HomeIcon />
@@ -406,7 +497,10 @@ export default function App() {
             key={screen}
             type="button"
             className={`${navBtn} ${overlay === screen ? 'text-accent' : 'text-ink-2'}`}
-            onClick={() => setOverlay(screen)}
+            onClick={() => {
+              haptic()
+              setOverlay(screen)
+            }}
             aria-current={overlay === screen ? 'page' : undefined}
           >
             <Icon />
@@ -415,10 +509,12 @@ export default function App() {
         ))}
       </nav>
 
-      {overlay === 'guide' && <Guide onClose={closeOverlay} />}
+      {shownOverlay === 'guide' && <Guide onClose={closeOverlay} leaving={overlayLeaving} />}
       {NAV.map(
         ({ screen, label, Icon, text }) =>
-          overlay === screen && <ComingSoon key={screen} title={label} icon={<Icon />} text={text} onClose={closeOverlay} />,
+          shownOverlay === screen && (
+            <ComingSoon key={screen} title={label} icon={<Icon />} text={text} onClose={closeOverlay} leaving={overlayLeaving} />
+          ),
       )}
     </div>
   )

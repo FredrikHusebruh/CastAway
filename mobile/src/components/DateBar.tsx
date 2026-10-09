@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatDate, formatNets } from '../format'
+import { haptic, useTweenedNumber } from '../motion'
 
 interface Props {
   dates: string[]
@@ -23,6 +24,7 @@ export default function DateBar({ dates, value, today, totals, windowDays, onCha
   const [playing, setPlaying] = useState(false)
   const i = Math.max(dates.indexOf(value), 0)
   const phase = PHASES[value < today ? 'hindcast' : value === today ? 'today' : 'forecast']
+  const total = useTweenedNumber(totals[value] ?? 0)
 
   useEffect(() => {
     if (!playing) return
@@ -30,7 +32,10 @@ export default function DateBar({ dates, value, today, totals, windowDays, onCha
     return () => clearTimeout(t)
   }, [playing, i, dates, onChange])
 
-  const step = (d: number) => onChange(dates[Math.min(Math.max(i + d, 0), dates.length - 1)])
+  const step = (d: number) => {
+    haptic()
+    onChange(dates[Math.min(Math.max(i + d, 0), dates.length - 1)])
+  }
   const btn =
     'grid h-11 min-w-11 place-items-center rounded-full border border-line text-lg active:bg-surface-2 disabled:opacity-40'
 
@@ -43,12 +48,12 @@ export default function DateBar({ dates, value, today, totals, windowDays, onCha
         <div className="min-w-0 flex-1 text-center">
           <div className="flex items-center justify-center gap-2">
             <span className="truncate text-base font-semibold">{formatDate(value)}</span>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${phase.className}`}>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-300 ${phase.className}`}>
               {phase.label}
             </span>
           </div>
           <div className="text-xs text-ink-2">
-            <span className="font-semibold text-ink">{formatNets(totals[value] ?? 0)}</span> nets ashore in {windowDays}{' '}
+            <span className="font-semibold tabular-nums text-ink">{formatNets(total)}</span> nets ashore in {windowDays}{' '}
             days
           </div>
         </div>
@@ -66,7 +71,10 @@ export default function DateBar({ dates, value, today, totals, windowDays, onCha
         <button
           type="button"
           className="h-9 shrink-0 rounded-full bg-surface-2 px-3 text-sm font-medium active:opacity-70"
-          onClick={() => setPlaying((p) => !p)}
+          onClick={() => {
+            haptic()
+            setPlaying((p) => !p)
+          }}
           aria-label={playing ? 'Pause' : 'Play through dates'}
         >
           {playing ? '❚❚' : '▶'}

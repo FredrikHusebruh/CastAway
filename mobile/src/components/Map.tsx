@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CircleMarker,
   MapContainer,
+  Marker,
+  Pane,
   Polygon,
   Polyline,
   Rectangle,
@@ -222,6 +224,29 @@ function FitToPaths({ paths, selectionKey }: { paths: ParticlePath[] | null; sel
   return null
 }
 
+/** Cross-fades the coast cells when they change (e.g. a new date) instead of letting them blink. */
+function CellsFade({ cells }: { cells: CellCollection | null }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!cells || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    map.getPane('cells')?.animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 350, easing: 'ease-out' })
+  }, [cells, map])
+  return null
+}
+
+const PULSE_ICON = L.divIcon({ className: '', html: '<span class="pulse-ring"></span>', iconSize: [0, 0] })
+
+/** Soft pulsing ring around the tapped item so it stands out on a busy map. */
+function PickedPulse({ picked, gear }: { picked: Picked | null; gear: GearCollection | null }) {
+  let at: [number, number] | null = null
+  if (picked?.kind === 'cell') at = ringCenter(picked.cell.geometry.coordinates[0])
+  if (picked?.kind === 'gear') {
+    const f = gear?.features.find((g) => g.properties.id === picked.gear.id)
+    if (f) at = [f.geometry.coordinates[1], f.geometry.coordinates[0]]
+  }
+  return at && <Marker position={at} icon={PULSE_ICON} interactive={false} keyboard={false} />
+}
+
 function FlyTo({ focus }: { focus: [number, number] | null }) {
   const map = useMap()
   useEffect(() => {
@@ -233,8 +258,6 @@ function FlyTo({ focus }: { focus: [number, number] | null }) {
 export default function MapView(props: Props) {
   const [w, s, e, n] = props.bbox
   const [zoom, setZoom] = useState(0)
-  // one canvas for all dots: cheaper than SVG on phones (taps are handled by TapPicker, not per shape)
-  const renderer = useMemo(() => L.canvas(), [])
   const pickedGearId = props.picked?.kind === 'gear' ? props.picked.gear.id : null
   const pickedCellId = props.picked?.kind === 'cell' ? props.picked.cell.properties.cell_id : null
   const { onPick } = props
@@ -247,7 +270,7 @@ export default function MapView(props: Props) {
       className="h-full w-full"
       zoomSnap={0.5}
       zoomControl={false} // added below with a fixed position, as on desktop
-      renderer={renderer}
+      preferCanvas // one canvas per pane: cheaper than SVG on phones (taps are handled by TapPicker)
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -264,16 +287,21 @@ export default function MapView(props: Props) {
       {props.layers.drift && props.drift && <DriftLayer drift={props.drift} />}
       {props.layers.paths && props.paths && <PathsLayer paths={props.paths} factors={props.windageFactors} />}
 
-      {props.layers.beaching && props.cells && (
-        <BeachingLayer
-          cells={props.cells}
-          breaks={props.breaks}
-          date={props.date}
-          zoom={zoom}
-          pickedId={pickedCellId}
-        />
-      )}
+      {/* own panes, stacked drift < paths < coast cells < lost gear, so the cells can fade on their own */}
+      <Pane name="cells" style={{ zIndex: 410 }}>
+        {props.layers.beaching && props.cells && (
+          <BeachingLayer
+            cells={props.cells}
+            breaks={props.breaks}
+            date={props.date}
+            zoom={zoom}
+            pickedId={pickedCellId}
+          />
+        )}
+      </Pane>
+      <CellsFade cells={props.cells} />
 
+      <Pane name="gear" style={{ zIndex: 420 }}>
       {props.layers.gear &&
         props.gear?.features.map((f) => {
           const selected = props.selectedNets.includes(f.properties.id) || f.properties.id === pickedGearId
@@ -300,6 +328,8 @@ export default function MapView(props: Props) {
           pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }}
         />
       )}
+      </Pane>
+      <PickedPulse picked={props.picked} gear={props.gear} />
     </MapContainer>
   )
 }

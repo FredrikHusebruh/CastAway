@@ -6,17 +6,18 @@ interface Props {
   icon: ReactNode
   text: string
   onClose: () => void
+  leaving: boolean // animating out (see usePresence)
 }
 
 /**
  * Placeholder screen for a bottom-bar tab that isn't built yet (leaderboard, reporting, profile).
  * These features are out of scope for the prototype (see CLAUDE.md); this is their extension point.
  */
-export default function ComingSoon({ title, icon, text, onClose }: Props) {
+export default function ComingSoon({ title, icon, text, onClose, leaving }: Props) {
   return (
-    <div className="fixed inset-0 z-[3000] flex animate-fade-in items-end bg-black/50" role="dialog" aria-modal="true" onClick={onClose}>
+    <div className={`fixed inset-0 z-[3000] flex items-end bg-black/50 ${leaving ? 'pointer-events-none animate-fade-out' : 'animate-fade-in'}`} role="dialog" aria-modal="true" onClick={onClose}>
       <div
-        className="relative w-full animate-sheet-up rounded-t-3xl bg-surface px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 text-ink"
+        className={`relative w-full rounded-t-3xl ${leaving ? 'animate-sheet-down' : 'animate-sheet-up'} bg-surface px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 text-ink`}
         onClick={(e) => e.stopPropagation()}
       >
         <button

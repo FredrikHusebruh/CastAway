@@ -26,7 +26,7 @@ const STEPS: Step[] = [
   {
     target: 'panel',
     title: 'Hotspots, layers and legend',
-    body: 'Open the panel to see the top hotspots, turn map layers on and off, and read what the colours mean.',
+    body: 'Tap or drag the panel up to see the top hotspots (by most nets or nearest you), turn map layers on and off, and read what the colours mean.',
   },
   {
     target: 'nav',
@@ -55,7 +55,7 @@ function useTargetRect(target: string | undefined): DOMRect | null {
 }
 
 /** Step-by-step walkthrough: dims the screen, spotlights one part of the UI and explains it. */
-export default function Guide({ onClose }: { onClose: () => void }) {
+export default function Guide({ onClose, leaving }: { onClose: () => void; leaving: boolean }) {
   const [i, setI] = useState(0)
   const step = STEPS[i]
   const rect = useTargetRect(step.target)
@@ -76,7 +76,9 @@ export default function Guide({ onClose }: { onClose: () => void }) {
       : { bottom: Math.max(window.innerHeight - rect.top + PAD + GAP, 16) }
 
   return (
-    <div className="fixed inset-0 z-[3000] animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+    <div
+      className={`fixed inset-0 z-[3000] ${leaving ? 'pointer-events-none animate-fade-out' : 'animate-fade-in'}`}
+      role="dialog" aria-modal="true" aria-labelledby="guide-title">
       {rect ? (
         <div
           className="pointer-events-none absolute rounded-xl ring-2 ring-accent transition-all duration-300"
