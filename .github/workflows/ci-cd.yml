@@ -2,18 +2,12 @@
 #
 # On every push / pull request: test the backend and build the frontend.
 # On push to Main, every morning, or the "Run workflow" button: run the forecast on GitHub's computers,
-# build the static website with the forecast files inside, and push it to the `deploy` branch.
-# Hostinger's Git deployment pulls that branch into public_html (auto-deploy via webhook).
-#
-# One-time setup (see README "Deployment"):
-#   1. Push this file to Main. The first successful run creates the `deploy` branch.
-#   2. Hostinger hPanel -> your website -> Advanced -> Git:
-#        repository https://github.com/FredrikHusebruh/CastAway.git, branch `deploy`, directory empty (public_html).
-#      Turn on Auto Deployment and copy its webhook URL.
-#   3. GitHub repo -> Settings -> Webhooks -> Add webhook: paste the URL, content type application/json, push events.
+# build the static website with the forecast files inside, and upload it by FTP to Hostinger
+# (public_html/castaway/, i.e. https://<your domain>/castaway/). Only changed files are uploaded.
 #
 # Settings (GitHub repo -> Settings -> Secrets and variables -> Actions):
-#   Secrets   BW_CLIENT_ID, BW_CLIENT_SECRET   BarentsWatch API client (optional: without them the public download is used)
+#   Secrets   FTP_SERVER, FTP_USERNAME, FTP_PASSWORD   Hostinger FTP account (hPanel -> Files -> FTP Accounts)
+#             BW_CLIENT_ID, BW_CLIENT_SECRET            BarentsWatch API client (optional: without them the public download is used)
 #   Variables CASTAWAY_REGION                  region preset (default finnmark_east; e.g. kristiansand)
 #             CASTAWAY_MOCK                    "true" = publish randomly generated demo reports (shows a MOCK DATA badge)
 #             CASTAWAY_HINDCAST_DAYS           days of drift before today (default 7; 30 takes much longer the first time)
@@ -28,7 +22,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write # lets the publish job push the built site to the `deploy` branch
+  contents: read # the site is uploaded by FTP; the workflow never writes to the repository
 
 jobs:
   backend:
@@ -132,11 +126,13 @@ jobs:
           rsync -a --exclude 'runs/' --exclude 'tracks/' --exclude '*.png' ../backend/data/output/ dist/data/
           du -sh dist dist/data
 
-      - name: Publish to the deploy branch (Hostinger pulls it)
-        uses: peaceiris/actions-gh-pages@v4
+      # Syncs dist/ to the server: uploads new/changed files and deletes files that are no longer in the build
+      # (it keeps a .ftp-deploy-sync-state.json on the server to know what is there).
+      - name: Upload to Hostinger (FTP)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: frontend/dist
-          publish_branch: deploy
-          force_orphan: true # keep only the latest build so the branch stays small
-          commit_message: Forecast and site build
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: frontend/dist/
+          server-dir: public_html/castaway/
