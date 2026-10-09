@@ -46,7 +46,7 @@ npm run dev | npm run build | npm run lint                # from frontend/ (Vite
 - Simulation results go to `data/output/runs/<mock|real>_<region>_<forecast hour>_<gear fingerprint>/` with a `manifest.json`. Reruns with identical input skip nets already simulated; changed input (mock ids repeat!) gets a fresh folder.
 
 **Deployment (static, no server):**
-- `.github/workflows/ci-cd.yml` runs the tests on every push. On `Main`, daily, or a manual run, it runs the forecast, builds with `VITE_STATIC=true`, copies `backend/data/output/` (minus `runs/` and `tracks/`) to `dist/data/`, and pushes to the `deploy` branch. Hostinger's Git deployment pulls that branch into `public_html`.
+- `.github/workflows/ci-cd.yml` runs the tests on every push. On `Main`, daily, or a manual run, it runs the forecast, builds with `VITE_STATIC=true`, copies `backend/data/output/` (minus `runs/` and `tracks/`) to `dist/data/`, and uploads `frontend/dist/` by FTP (SamKirkland/FTP-Deploy-Action) to `public_html/castaway/`. The secrets are `FTP_SERVER`, `FTP_USERNAME` and `FTP_PASSWORD`, and the workflow only needs `contents: read`.
 - `frontend/src/staticData.ts` reproduces `/api/paths`, `/api/drift` and `/api/net/{id}/beaching` from the files. Whenever `aggregate.trim_paths`, `combine_drift`, `item_window_cells` or the API thinning change, change it too.
 - Check parity by running `staticData.ts` in Node against the static files and comparing with the API (0 mismatches as of 2026-10-09).
 
