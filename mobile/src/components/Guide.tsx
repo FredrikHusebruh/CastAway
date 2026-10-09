@@ -16,7 +16,7 @@ const STEPS: Step[] = [
   {
     target: 'map',
     title: 'The map',
-    body: 'Orange dots are stretches of coast where nets are expected to wash ashore; darker means more. Dark blue dots are reported lost gear. Tap any dot for details.',
+    body: 'The coloured glow along the coast shows where nets are expected to wash ashore: purple is less, yellow is most. Dark dots are reported lost gear. Tap a lost item to see where it alone washes ashore, or tap the coast for details.',
   },
   {
     target: 'date',

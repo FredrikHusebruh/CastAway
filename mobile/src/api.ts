@@ -1,4 +1,5 @@
 import type { Feature, FeatureCollection, Point, Polygon } from 'geojson'
+import { getStatic, staticDrift, staticItemBeaching, staticPaths } from './staticData'
 
 // Empty = same origin: the Vite dev server proxies /api to the backend, so phones on the LAN work without CORS changes.
 export const API_URL: string = import.meta.env.VITE_API_URL ?? ''
@@ -48,24 +49,44 @@ export interface ParticlePath {
   id: string
   wdf: number // wind drift factor (windage)
   stranded: boolean // had stranded by the end of the requested date
-  coords: [number, number][] // [lat, lon], hourly (thinned when many nets are selected)
+  coords: [number, number][] // [lat, lon], every output step (thinned when many nets are selected)
 }
 
 export type GearCollection = FeatureCollection<Point, GearProps>
 export type CellCollection = FeatureCollection<Polygon, CellProps>
 export type CellFeature = Feature<Polygon, CellProps>
 
+/** One item's beaching cells: expected_nets = its total chance of washing ashore there (float chance included). */
+export type ItemBeaching = CellCollection & { id: string; chance_total: number; float_prob: number }
+
+// VITE_STATIC=true: read precomputed files (static web hosting, see staticData.ts); otherwise the FastAPI server.
+export const STATIC: boolean = import.meta.env.VITE_STATIC === 'true'
+
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`)
+  // no-cache: output files keep their names across pipeline runs, so always revalidate with the server
+  const res = await fetch(`${API_URL}${path}`, { cache: 'no-cache' })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${path}`)
   return (await res.json()) as T
 }
 
-export const fetchIndex = () => getJson<IndexInfo>('/api/dates')
-export const fetchGear = () => getJson<GearCollection>('/api/gear')
-export const fetchBeaching = (date: string) => getJson<CellCollection>(`/api/beaching?date=${date}`)
+const idList = (ids: string[]) => ids.map(encodeURIComponent).join(',')
+
+export const fetchIndex = () => (STATIC ? getStatic<IndexInfo>('index.json') : getJson<IndexInfo>('/api/dates'))
+export const fetchGear = () =>
+  STATIC ? getStatic<GearCollection>('lost_gear.geojson') : getJson<GearCollection>('/api/gear')
+export const fetchBeaching = (date: string) =>
+  STATIC
+    ? getStatic<CellCollection>(`beaching_${date}.geojson`)
+    : getJson<CellCollection>(`/api/beaching?date=${date}`)
+export const fetchItemBeaching = (id: string, date: string) =>
+  STATIC
+    ? staticItemBeaching(id, date)
+    : getJson<ItemBeaching>(`/api/net/${encodeURIComponent(id)}/beaching?date=${date}`)
+
 export const fetchPaths = (ids: string[], date: string) =>
-  getJson<{ ids: string[]; paths: ParticlePath[] }>(`/api/paths?ids=${ids.map(encodeURIComponent).join(',')}&date=${date}`)
+  STATIC
+    ? staticPaths(ids, date)
+    : getJson<{ ids: string[]; paths: ParticlePath[] }>(`/api/paths?ids=${idList(ids)}&date=${date}`)
 
 export const fetchDrift = (ids: string[], date: string) =>
-  getJson<DriftResponse>(`/api/drift?ids=${ids.map(encodeURIComponent).join(',')}&date=${date}`)
+  STATIC ? staticDrift(ids, date) : getJson<DriftResponse>(`/api/drift?ids=${idList(ids)}&date=${date}`)

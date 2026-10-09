@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatDate, formatNets } from '../format'
+import { formatDate, formatNets, formatPercent } from '../format'
 import { haptic, useTweenedNumber } from '../motion'
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   today: string // YYYY-MM-DD of the forecast start; earlier dates are hindcast, later ones forecast
   totals: Record<string, number>
   windowDays: number
+  itemChance?: number | null // item focus: show this item's chance instead of the regional total
   onChange: (date: string) => void
 }
 
@@ -20,11 +21,12 @@ const PHASES = {
 }
 
 /** Always-visible date control at the top of the bottom sheet, sized for thumbs (44 px targets). */
-export default function DateBar({ dates, value, today, totals, windowDays, onChange }: Props) {
+export default function DateBar({ dates, value, today, totals, windowDays, itemChance, onChange }: Props) {
   const [playing, setPlaying] = useState(false)
   const i = Math.max(dates.indexOf(value), 0)
   const phase = PHASES[value < today ? 'hindcast' : value === today ? 'today' : 'forecast']
   const total = useTweenedNumber(totals[value] ?? 0)
+  const chance = useTweenedNumber(itemChance ?? 0)
 
   useEffect(() => {
     if (!playing) return
@@ -53,8 +55,19 @@ export default function DateBar({ dates, value, today, totals, windowDays, onCha
             </span>
           </div>
           <div className="text-xs text-ink-2">
-            <span className="font-semibold tabular-nums text-ink">{formatNets(total)}</span> nets ashore in {windowDays}{' '}
-            days
+            {itemChance !== undefined ? (
+              <>
+                <span className="font-semibold tabular-nums text-ink">
+                  {itemChance === null ? '…' : formatPercent(chance)}
+                </span>{' '}
+                chance ashore in {windowDays} days
+              </>
+            ) : (
+              <>
+                <span className="font-semibold tabular-nums text-ink">{formatNets(total)}</span> nets ashore in{' '}
+                {windowDays} days
+              </>
+            )}
           </div>
         </div>
         <button

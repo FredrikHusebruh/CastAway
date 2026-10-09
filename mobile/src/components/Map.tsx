@@ -1,20 +1,9 @@
 import L from 'leaflet'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  CircleMarker,
-  MapContainer,
-  Marker,
-  Pane,
-  Polygon,
-  Polyline,
-  Rectangle,
-  TileLayer,
-  useMap,
-  useMapEvents,
-  ZoomControl,
-} from 'react-leaflet'
+import { useEffect, useMemo, useRef } from 'react'
+import { CircleMarker, ImageOverlay, MapContainer, Marker, Pane, TileLayer, useMap, useMapEvents, ZoomControl } from 'react-leaflet'
 import type { CellCollection, CellFeature, DriftResponse, GearCollection, GearProps, ParticlePath } from '../api'
-import { GEAR_COLOR, RAMP, SELECTED_COLOR, STRANDED_COLOR, driftColor, rampColor, ringCenter, windageColor } from '../format'
+import { GEAR_COLOR, SELECTED_COLOR, STRANDED_COLOR, beachingRGBA, driftRGBA, ringCenter, windageColor } from '../format'
+import { buildRaster } from '../raster'
 
 export interface Layers {
   gear: boolean
@@ -23,13 +12,15 @@ export interface Layers {
   drift: boolean
 }
 
+/** 'region' = all items' expected nets; 'item' = one selected item's own chance of washing ashore. */
+export type BeachingMode = 'region' | 'item'
+
 /** What the user tapped on the map; shown as a card in the bottom sheet instead of a Leaflet popup. */
 export type Picked = { kind: 'gear'; gear: GearProps } | { kind: 'cell'; cell: CellFeature }
 
 interface Props {
   bbox: [number, number, number, number]
   attribution: string
-  date: string
   gear: GearCollection | null
   cells: CellCollection | null
   breaks: number[]
@@ -47,18 +38,24 @@ interface Props {
 
 const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 
-// 1 km cells are only a few pixels wide at region zoom, so below this zoom they are drawn as dots.
-const CELL_POLYGON_MIN_ZOOM = 11
 // How far (px) from a dot a finger tap still selects it. Small dots need a generous area.
 const TAP_RADIUS = 22
-// A tap this close (px) to a lost-gear dot means the user is on it, even inside a large 1 km cell polygon.
+// A tap this close (px) to a lost-gear dot means the user is on it, even inside a large 1 km cell.
 const GEAR_DIRECT_HIT = 9
 
-function ZoomWatcher({ onZoom }: { onZoom: (zoom: number) => void }) {
-  const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) })
-  useEffect(() => onZoom(map.getZoom()), [map, onZoom])
-  return null
-}
+// Smoothing radius (in grid cells) of the interpolated rasters: higher = rounder and softer, 0 = plain bilinear.
+// Same values as the desktop map (frontend/src/components/Map.tsx).
+const BEACHING_SMOOTH_CELLS = 0.7
+const DRIFT_SMOOTH_CELLS = 0.8
+
+// Stranded particles are drawn as 100 m squares at true size; particles that strand at (almost) the same
+// spot share one square so they don't pile up into blobs.
+const STRANDED_SQUARE_M = 100
+
+// Panes, bottom to top: drift raster + paths < coast cells < lost gear. Own panes let the cells fade alone.
+const DRIFT_PANE = 'drift'
+const CELLS_PANE = 'cells'
+const GEAR_PANE = 'gear'
 
 interface TapProps {
   gear: GearCollection | null
@@ -69,8 +66,8 @@ interface TapProps {
 
 /**
  * Picks whatever is nearest the tap: a lost-gear dot, a coast cell, or nothing (closes the card).
- * Leaflet's own hit test gives a tap to the last-drawn shape within the tolerance, so with finger-sized
- * tolerances a neighbouring coast cell would steal taps aimed at a lost-gear dot.
+ * The coast cells are one raster image, and Leaflet's own hit test would give a finger-sized tap to the
+ * last-drawn shape rather than the nearest, so taps are resolved here.
  */
 function TapPicker({ gear, cells, layers, onPick }: TapProps) {
   const map = useMapEvents({
@@ -83,13 +80,10 @@ function TapPicker({ gear, cells, layers, onPick }: TapProps) {
         if (d <= bestD) [bestD, best] = [d, picked]
       }
       if (layers.beaching && cells) {
-        const polygons = map.getZoom() >= CELL_POLYGON_MIN_ZOOM
         for (const cell of cells.features) {
           const ring = cell.geometry.coordinates[0]
           const [lat, lng] = ringCenter(ring)
-          const inside =
-            polygons &&
-            L.latLngBounds(ring.map(([lon, la]) => [la, lon] as [number, number])).contains(e.latlng)
+          const inside = L.latLngBounds(ring.map(([lon, la]) => [la, lon] as [number, number])).contains(e.latlng)
           consider(inside ? GEAR_DIRECT_HIT : dist(lat, lng), { kind: 'cell', cell })
         }
       }
@@ -124,91 +118,142 @@ function ResizeWatcher() {
   return null
 }
 
-interface BeachingProps {
-  cells: CellCollection
-  breaks: number[]
-  date: string
-  zoom: number
-  pickedId: string | null
+/** Size [dlon, dlat] of a cell from its polygon ring. */
+function ringSize(ring: number[][]): [number, number] {
+  const lons = ring.map((p) => p[0])
+  const lats = ring.map((p) => p[1])
+  return [Math.max(...lons) - Math.min(...lons), Math.max(...lats) - Math.min(...lats)]
 }
 
-function BeachingLayer({ cells, breaks, date, zoom, pickedId }: BeachingProps) {
-  // draw ascending so the highest-value cells end up on top
-  const features = [...cells.features].sort((a, b) => a.properties.expected_nets - b.properties.expected_nets)
-  return features.map((f) => {
-    const picked = f.properties.cell_id === pickedId
-    const pathOptions = {
-      color: picked ? SELECTED_COLOR : RAMP[RAMP.length - 1],
-      weight: picked ? 3 : 1,
-      fillColor: rampColor(f.properties.expected_nets, breaks),
-      fillOpacity: 0.9,
-    }
-    const key = `${date}-${f.properties.cell_id}`
-    const ring = f.geometry.coordinates[0]
-    return zoom >= CELL_POLYGON_MIN_ZOOM ? (
-      <Polygon
-        key={key}
-        positions={ring.map(([lon, lat]) => [lat, lon] as [number, number])}
-        pathOptions={pathOptions}
-        interactive={false}
-      />
-    ) : (
-      <CircleMarker
-        key={key}
-        center={ringCenter(ring)}
-        radius={picked ? 8 : 6}
-        pathOptions={pathOptions}
-        interactive={false}
-      />
-    )
-  })
+/** Beaching cells as one smooth interpolated viridis raster (as on desktop). Taps are handled by TapPicker. */
+function BeachingLayer({ cells, breaks }: { cells: CellCollection; breaks: number[] }) {
+  const raster = useMemo(() => {
+    const feats = cells.features
+    if (feats.length === 0) return null
+    const grid = feats.map((f) => {
+      const [lat, lon] = ringCenter(f.geometry.coordinates[0])
+      return { lat, lon, v: f.properties.expected_nets }
+    })
+    return buildRaster(grid, ringSize(feats[0].geometry.coordinates[0]), (v) => beachingRGBA(v, breaks), {
+      smoothCells: BEACHING_SMOOTH_CELLS,
+    })
+  }, [cells, breaks])
+  return raster && <ImageOverlay url={raster.url} bounds={raster.bounds} interactive={false} />
 }
 
-/** Drift likelihood as a grid heat map, drawn on one canvas (can be thousands of cells). */
+/** Drift likelihood as a smooth interpolated viridis raster. */
 function DriftLayer({ drift }: { drift: DriftResponse }) {
-  const renderer = useMemo(() => L.canvas({ padding: 0.5 }), [])
-  const [dlon, dlat] = drift.cell_deg
-  return drift.cells.map(([lat, lon, v]) => (
-    <Rectangle
-      key={`${lat},${lon}`}
-      bounds={[
-        [lat - dlat / 2, lon - dlon / 2],
-        [lat + dlat / 2, lon + dlon / 2],
-      ]}
-      interactive={false}
-      pathOptions={{ renderer, stroke: false, fillColor: driftColor(v), fillOpacity: 0.55 }}
-    />
-  ))
+  const raster = useMemo(
+    () =>
+      buildRaster(drift.cells.map(([lat, lon, v]) => ({ lat, lon, v })), drift.cell_deg, driftRGBA, {
+        smoothCells: DRIFT_SMOOTH_CELLS,
+      }),
+    [drift],
+  )
+  return raster && <ImageOverlay url={raster.url} bounds={raster.bounds} interactive={false} />
 }
 
-/** Individual particle trajectories ("spaghetti"), coloured by windage; dots where they stranded. */
-function PathsLayer({ paths, factors }: { paths: ParticlePath[]; factors: number[] }) {
-  const renderer = useMemo(() => L.canvas({ padding: 0.5 }), [])
-  // draw low windage last so the less wind-driven paths stay visible on top
-  const ordered = [...paths].sort((a, b) => b.wdf - a.wdf)
-  return (
-    <>
-      {ordered.map((p, k) => (
-        <Polyline
-          key={`${p.id}-${k}`}
-          positions={p.coords}
-          interactive={false}
-          pathOptions={{ renderer, color: windageColor(p.wdf, factors), weight: 1.5, opacity: 0.75 }}
-        />
-      ))}
-      {ordered
-        .filter((p) => p.stranded)
-        .map((p, k) => (
-          <CircleMarker
-            key={`${p.id}-end-${k}`}
-            center={p.coords[p.coords.length - 1]}
-            radius={2.5}
-            interactive={false}
-            pathOptions={{ renderer, stroke: false, fillColor: STRANDED_COLOR, fillOpacity: 0.9 }}
-          />
-        ))}
-    </>
-  )
+function strandingSpots(paths: ParticlePath[]): [number, number][] {
+  const spots = new Map<string, [number, number]>()
+  for (const p of paths) {
+    if (!p.stranded) continue
+    const [lat, lon] = p.coords[p.coords.length - 1]
+    const key = `${Math.round(lat / 0.0009)},${Math.round(lon / 0.0017)}` // ~100 m grid at 58-70 N
+    if (!spots.has(key)) spots.set(key, [lat, lon])
+  }
+  return [...spots.values()]
+}
+
+/**
+ * Particle trajectories ("spaghetti") coloured by windage, plus 100 m squares where they stranded, all drawn on
+ * ONE canvas (same as desktop): positions are projected once per selection, points closer than ~1 px are
+ * skipped, each windage colour is stroked in one batch, and the canvas is redrawn when panning/zooming ends.
+ */
+function PathsCanvas({ paths, factors }: { paths: ParticlePath[]; factors: number[] }) {
+  const map = useMap()
+  useEffect(() => {
+    // project once at zoom 0; at zoom z a pixel position is just that times 2^z
+    const projected = paths.map((p) => {
+      const xy = new Float64Array(p.coords.length * 2)
+      p.coords.forEach(([lat, lon], k) => {
+        const pt = map.project([lat, lon], 0)
+        xy[2 * k] = pt.x
+        xy[2 * k + 1] = pt.y
+      })
+      return { xy, color: windageColor(p.wdf, factors), wdf: p.wdf }
+    })
+    // draw low windage last so the less wind-driven paths stay visible on top
+    projected.sort((a, b) => b.wdf - a.wdf)
+    const colors = [...new Set(projected.map((p) => p.color))]
+    const spots = strandingSpots(paths)
+
+    const canvas = L.DomUtil.create('canvas', 'leaflet-zoom-hide') as HTMLCanvasElement
+    map.getPane(DRIFT_PANE)?.appendChild(canvas)
+    const ctx = canvas.getContext('2d')
+    const draw = () => {
+      if (!ctx) return
+      const size = map.getSize()
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = size.x * dpr
+      canvas.height = size.y * dpr
+      canvas.style.width = `${size.x}px`
+      canvas.style.height = `${size.y}px`
+      L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]))
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, size.x, size.y)
+
+      const scale = 2 ** map.getZoom()
+      const ref = map.getCenter()
+      const refPx = map.project(ref, 0)
+      const refCp = map.latLngToContainerPoint(ref)
+      const ox = refCp.x - refPx.x * scale
+      const oy = refCp.y - refPx.y * scale
+
+      ctx.lineWidth = 1.5
+      ctx.lineJoin = 'round'
+      ctx.globalAlpha = 0.75
+      for (const color of colors) {
+        ctx.beginPath()
+        for (const p of projected) {
+          if (p.color !== color) continue
+          let lastX = Infinity
+          let lastY = Infinity
+          for (let k = 0; k < p.xy.length; k += 2) {
+            const x = p.xy[k] * scale + ox
+            const y = p.xy[k + 1] * scale + oy
+            if (k === 0) ctx.moveTo(x, y)
+            else if (Math.abs(x - lastX) + Math.abs(y - lastY) >= 1 || k === p.xy.length - 2) ctx.lineTo(x, y)
+            else continue
+            lastX = x
+            lastY = y
+          }
+        }
+        ctx.strokeStyle = color
+        ctx.stroke()
+      }
+
+      // stranding spots: true-size 100 m squares (at least 2 px so they never vanish)
+      ctx.globalAlpha = 0.95
+      ctx.fillStyle = STRANDED_COLOR
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 1
+      for (const [lat, lon] of spots) {
+        const metersPerPx = (40_075_016.686 * Math.cos((lat * Math.PI) / 180)) / (256 * scale)
+        const side = Math.max(STRANDED_SQUARE_M / metersPerPx, 2)
+        const c = map.latLngToContainerPoint([lat, lon])
+        ctx.fillRect(c.x - side / 2, c.y - side / 2, side, side)
+        if (side >= 6) ctx.strokeRect(c.x - side / 2, c.y - side / 2, side, side)
+      }
+    }
+    draw()
+    // 'resize' covers the bottom sheet growing/shrinking (ResizeWatcher -> invalidateSize)
+    map.on('moveend zoomend resize viewreset', draw)
+    return () => {
+      map.off('moveend zoomend resize viewreset', draw)
+      canvas.remove()
+    }
+  }, [map, paths, factors])
+  return null
 }
 
 /** Zoom to the paths once per new selection (not on every date change). */
@@ -229,7 +274,7 @@ function CellsFade({ cells }: { cells: CellCollection | null }) {
   const map = useMap()
   useEffect(() => {
     if (!cells || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
-    map.getPane('cells')?.animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 350, easing: 'ease-out' })
+    map.getPane(CELLS_PANE)?.animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 350, easing: 'ease-out' })
   }, [cells, map])
   return null
 }
@@ -257,9 +302,7 @@ function FlyTo({ focus }: { focus: [number, number] | null }) {
 
 export default function MapView(props: Props) {
   const [w, s, e, n] = props.bbox
-  const [zoom, setZoom] = useState(0)
   const pickedGearId = props.picked?.kind === 'gear' ? props.picked.gear.id : null
-  const pickedCellId = props.picked?.kind === 'cell' ? props.picked.cell.properties.cell_id : null
   const { onPick } = props
   return (
     <MapContainer
@@ -268,9 +311,9 @@ export default function MapView(props: Props) {
         [n, e],
       ]}
       className="h-full w-full"
-      zoomSnap={0.5}
+      zoomSnap={1} // fractional zoom shows hairline gaps between OSM tiles
       zoomControl={false} // added below with a fixed position, as on desktop
-      preferCanvas // one canvas per pane: cheaper than SVG on phones (taps are handled by TapPicker)
+      preferCanvas // one canvas per pane for the gear dots: cheaper than SVG on phones
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -281,53 +324,45 @@ export default function MapView(props: Props) {
       <ResizeWatcher />
       <TapPicker gear={props.gear} cells={props.cells} layers={props.layers} onPick={onPick} />
       <FlyTo focus={props.focus} />
-      <ZoomWatcher onZoom={setZoom} />
       <FitToPaths paths={props.paths} selectionKey={props.selectedNets.join()} />
 
-      {props.layers.drift && props.drift && <DriftLayer drift={props.drift} />}
-      {props.layers.paths && props.paths && <PathsLayer paths={props.paths} factors={props.windageFactors} />}
+      <Pane name={DRIFT_PANE} style={{ zIndex: 405, pointerEvents: 'none' }}>
+        {props.layers.drift && props.drift && <DriftLayer drift={props.drift} />}
+        {props.layers.paths && props.paths && <PathsCanvas paths={props.paths} factors={props.windageFactors} />}
+      </Pane>
 
-      {/* own panes, stacked drift < paths < coast cells < lost gear, so the cells can fade on their own */}
-      <Pane name="cells" style={{ zIndex: 410 }}>
-        {props.layers.beaching && props.cells && (
-          <BeachingLayer
-            cells={props.cells}
-            breaks={props.breaks}
-            date={props.date}
-            zoom={zoom}
-            pickedId={pickedCellId}
-          />
-        )}
+      <Pane name={CELLS_PANE} style={{ zIndex: 410, pointerEvents: 'none' }}>
+        {props.layers.beaching && props.cells && <BeachingLayer cells={props.cells} breaks={props.breaks} />}
       </Pane>
       <CellsFade cells={props.cells} />
 
-      <Pane name="gear" style={{ zIndex: 420 }}>
-      {props.layers.gear &&
-        props.gear?.features.map((f) => {
-          const selected = props.selectedNets.includes(f.properties.id) || f.properties.id === pickedGearId
-          return (
-            <CircleMarker
-              key={f.properties.id}
-              center={[f.geometry.coordinates[1], f.geometry.coordinates[0]]}
-              radius={selected ? 8 : 6}
-              pathOptions={{
-                color: '#ffffff',
-                weight: selected ? 3 : 1.5,
-                fillColor: selected ? SELECTED_COLOR : GEAR_COLOR,
-                fillOpacity: 0.95,
-              }}
-              interactive={false}
-            />
-          )
-        })}
-      {props.userPos && (
-        <CircleMarker
-          center={props.userPos}
-          radius={8}
-          interactive={false}
-          pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }}
-        />
-      )}
+      <Pane name={GEAR_PANE} style={{ zIndex: 420, pointerEvents: 'none' }}>
+        {props.layers.gear &&
+          props.gear?.features.map((f) => {
+            const selected = props.selectedNets.includes(f.properties.id) || f.properties.id === pickedGearId
+            return (
+              <CircleMarker
+                key={f.properties.id}
+                center={[f.geometry.coordinates[1], f.geometry.coordinates[0]]}
+                radius={selected ? 8 : 6}
+                pathOptions={{
+                  color: '#ffffff',
+                  weight: selected ? 3 : 1.5,
+                  fillColor: selected ? SELECTED_COLOR : GEAR_COLOR,
+                  fillOpacity: 0.95,
+                }}
+                interactive={false}
+              />
+            )
+          })}
+        {props.userPos && (
+          <CircleMarker
+            center={props.userPos}
+            radius={8}
+            interactive={false}
+            pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }}
+          />
+        )}
       </Pane>
       <PickedPulse picked={props.picked} gear={props.gear} />
     </MapContainer>

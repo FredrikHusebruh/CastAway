@@ -1,5 +1,5 @@
 import type { CellFeature, IndexInfo } from '../api'
-import { formatDateTime, formatKm, formatNets, ringCenter } from '../format'
+import { formatDateTime, formatKm, formatNets, formatPercent, ringCenter } from '../format'
 import Legend from './Legend'
 import type { Layers } from './Map'
 
@@ -37,6 +37,7 @@ interface Props {
   onToggleLayer: (layer: keyof Layers) => void
   nSelected: number
   onClearSelection: () => void
+  itemMode: boolean // one lost item in focus: values are its chance (%), not expected nets
   tab: Tab
   onTabChange: (tab: Tab) => void
 }
@@ -88,8 +89,12 @@ export default function SheetTabs(props: Props) {
             ) : (
               <>
                 <p className="mb-1 text-xs text-ink-3">
-                  {props.hotspotSort === 'near' ? 'Nearest to you' : 'Most likely to wash ashore'} · last{' '}
-                  {props.windowDays} days
+                  {props.hotspotSort === 'near'
+                    ? 'Nearest to you'
+                    : props.itemMode
+                      ? 'Where this item most likely washes ashore'
+                      : 'Most likely to wash ashore'}{' '}
+                  · last {props.windowDays} days
                 </p>
                 <ol className="divide-y divide-line">
                   {props.hotspots.map(({ cell: f, km }, k) => {
@@ -106,7 +111,9 @@ export default function SheetTabs(props: Props) {
                             {km !== null && <span className="block text-xs text-ink-3">{formatKm(km)} away</span>}
                           </span>
                           <span className="shrink-0 font-semibold tabular-nums">
-                            {formatNets(f.properties.expected_nets)} nets
+                            {props.itemMode
+                              ? formatPercent(f.properties.expected_nets)
+                              : `${formatNets(f.properties.expected_nets)} nets`}
                           </span>
                         </button>
                       </li>
@@ -154,6 +161,7 @@ export default function SheetTabs(props: Props) {
             windowDays={props.windowDays}
             windageFactors={props.windageFactors}
             layers={props.layers}
+            itemMode={props.itemMode}
           />
         )}
 

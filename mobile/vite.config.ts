@@ -7,6 +7,7 @@ const API_TARGET = process.env.CASTAWAY_API_URL ?? 'http://localhost:8000'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: './', // relative paths: the static build works on any domain or subfolder
   plugins: [react(), tailwindcss()],
   server: {
     host: true, // listen on the LAN so a phone can open http://<laptop-ip>:5174

@@ -7,6 +7,7 @@ A phone-first UI for CastAway. It uses the same FastAPI backend and data as `../
 - tabs in the sheet for Hotspots, Layers, Legend and About
 - tapping a lost item or coast cell opens a detail card in the sheet, instead of a small map popup
 - a larger tap area around map dots
+- the same map as the desktop app: smooth viridis rasters for the beaching forecast and drift heat map, single-canvas drift paths with 100 m stranding squares, and **item focus** (tap a lost item → "Show where it washes ashore" shows that item's own chance in %; "Show all items" goes back)
 - a bottom menu with Home, Leaderboard, Rapportering and Profile. Home returns to the whole region. The other three are "coming soon" placeholders, because accounts, leaderboards and found-net reporting are out of scope for the prototype (see `../CLAUDE.md`)
 - a **?** button at the top right that opens a step-by-step guide to the app, with a close button
 
@@ -25,4 +26,6 @@ npm run dev          # http://localhost:5174 (the desktop frontend uses 5173)
 
 To install it like an app, use "Add to Home Screen" in Safari or Chrome. A web manifest is included.
 
-`src/api.ts`, `src/format.ts` and `components/Legend.tsx` are copies from `../frontend/src`. Keep them in sync when the API or colour ramps change.
+`src/api.ts`, `src/format.ts`, `src/raster.ts`, `src/staticData.ts` and `components/Legend.tsx` come from `../frontend/src` (`api.ts` keeps the empty default `API_URL` for the dev proxy; `format.ts` adds a few mobile helpers at the end). Keep them in sync when the API, colour ramps or `aggregate.py` change.
+
+**Static build** (like the desktop deploy): `VITE_STATIC=true npm run build`, then copy the forecast files into `dist/data/`. The app then reads `data/*.json|geojson` instead of the API. The CI workflow does not build `mobile/` yet.

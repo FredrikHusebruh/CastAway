@@ -5,11 +5,14 @@ import {
   type DriftResponse,
   type GearCollection,
   type IndexInfo,
+  type ItemBeaching,
   API_URL,
+  STATIC,
   fetchBeaching,
   fetchDrift,
   fetchGear,
   fetchIndex,
+  fetchItemBeaching,
   fetchPaths,
   type ParticlePath,
 } from './api'
@@ -20,7 +23,7 @@ import ComingSoon from './components/ComingSoon'
 import { CloseIcon, HelpIcon, HomeIcon, LeaderboardIcon, ProfileIcon, ReportIcon } from './components/Icons'
 import MapView, { type Layers, type Picked } from './components/Map'
 import SheetTabs, { type Hotspot, type HotspotSort, type Tab } from './components/Sheet'
-import { distanceKm, formatUpdated, ringCenter } from './format'
+import { distanceKm, formatDate, formatUpdated, gearLabel, ringCenter } from './format'
 import { haptic, usePresence, useSheetDrag } from './motion'
 
 const MAX_DRIFT_NETS = 25 // matches the API cap per /api/drift request
@@ -106,6 +109,9 @@ export default function App() {
   const [paths, setPaths] = useState<{ ids: string[]; paths: ParticlePath[] } | null>(null)
   const [layers, setLayers] = useState<Layers>({ gear: true, beaching: true, paths: true, drift: false })
   const [focus, setFocus] = useState<[number, number] | null>(null)
+  // item focus: one lost item whose own beaching chance replaces the regional map (as on desktop)
+  const [itemId, setItemId] = useState<string | null>(null)
+  const [itemBeaching, setItemBeaching] = useState<ItemBeaching | null>(null)
   const [picked, setPicked] = useState<Picked | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [sheetTab, setSheetTab] = useState<Tab>('Hotspots')
@@ -194,11 +200,45 @@ export default function App() {
     }
   }, [selectedNets, date, layers.drift, track])
 
+  useEffect(() => {
+    if (!date || !itemId) return
+    let stale = false
+    track(fetchItemBeaching(itemId, date))
+      .then((b) => !stale && setItemBeaching(b))
+      .catch((e: Error) => setError(e.message))
+    return () => {
+      stale = true
+    }
+  }, [itemId, date, track])
+
   const showDrift = useCallback((ids: string[]) => {
     setSelectedNets(ids.slice(0, MAX_DRIFT_NETS))
     setLayers((l) => (l.paths || l.drift ? l : { ...l, paths: true }))
     setPicked(null)
     setExpanded(false) // give the map the room to show the paths
+  }, [])
+
+  // from a coast-cell card: paths for the items behind it, regional map stays
+  const showCellDrift = useCallback(
+    (ids: string[]) => {
+      setItemId(null)
+      showDrift(ids)
+    },
+    [showDrift],
+  )
+
+  // from a lost-item card: only this item's beaching chance, plus its paths
+  const showItem = useCallback(
+    (id: string) => {
+      setItemId(id)
+      showDrift([id])
+    },
+    [showDrift],
+  )
+
+  const clearSelection = useCallback(() => {
+    setItemId(null)
+    setSelectedNets([])
   }, [])
 
   const pick = useCallback((p: Picked | null) => {
@@ -258,22 +298,29 @@ export default function App() {
     )
   }
 
+  const shownItem = itemBeaching && itemBeaching.id === itemId ? itemBeaching : null
+  const shownCells = itemId ? shownItem : cells
+  const itemGear = itemId ? gear?.features.find((f) => f.properties.id === itemId)?.properties : undefined
+  const [shownItemBanner, itemBannerLeaving] = usePresence(itemId)
+
   const hotspots: Hotspot[] = useMemo(() => {
-    const all = (cells?.features ?? []).map((cell) => ({
+    const all = (shownCells?.features ?? []).map((cell) => ({
       cell,
       km: userPos ? distanceKm(userPos, ringCenter(cell.geometry.coordinates[0])) : null,
     }))
     const byNets = (x: Hotspot, y: Hotspot) => y.cell.properties.expected_nets - x.cell.properties.expected_nets
     const byKm = (x: Hotspot, y: Hotspot) => (x.km ?? 0) - (y.km ?? 0)
     return all.sort(hotspotSort === 'near' && userPos ? byKm : byNets).slice(0, N_HOTSPOTS)
-  }, [cells, userPos, hotspotSort])
+  }, [shownCells, userPos, hotspotSort])
 
   if (error && !index) {
     return (
       <div className="grid h-dvh place-items-center p-6 text-center">
         <div className="max-w-md space-y-2">
           <h1 className="text-xl font-bold">CastAway</h1>
-          <p className="text-ink-2">Could not load the forecast from {API_URL || 'the backend'}.</p>
+          <p className="text-ink-2">
+            Could not load the forecast {STATIC ? 'files (data/)' : `from ${API_URL || 'the backend'}`}.
+          </p>
           <p className="text-sm text-ink-3">{error}</p>
           <button
             type="button"
@@ -337,9 +384,8 @@ export default function App() {
         <MapView
           bbox={index.bbox}
           attribution={index.attribution}
-          date={date}
           gear={gear}
-          cells={cells}
+          cells={shownCells}
           breaks={index.color_breaks ?? []}
           drift={shownDrift}
           paths={shownPaths}
@@ -357,7 +403,7 @@ export default function App() {
             <button
               type="button"
               className={`${floatingBtn} ${chipLeaving ? 'pointer-events-none animate-fade-out' : 'animate-fade-in'}`}
-              onClick={() => setSelectedNets([])}
+              onClick={clearSelection}
             >
               Drift: {shownDriftCount} item{shownDriftCount === 1 ? '' : 's'} ✕
             </button>
@@ -400,6 +446,32 @@ export default function App() {
           <span className="h-1.5 rounded-full bg-line transition-[width] duration-300" style={{ width: 40 + 16 * sheetOpenness }} />
         </button>
 
+        {shownItemBanner && (
+          <div
+            className={`mx-3 mb-2 flex shrink-0 items-center gap-3 rounded-2xl bg-surface-2 py-2 pl-3 pr-2 text-sm ${itemBannerLeaving ? 'pointer-events-none animate-fade-out' : 'animate-fade-up'}`}
+            role="status"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-semibold">
+                {itemGear ? gearLabel(itemGear.gear_type) : 'Lost item'}
+                <span className="font-normal text-ink-3"> · this item only</span>
+              </div>
+              {itemGear && (
+                <div className="truncate text-xs text-ink-3">
+                  Lost {formatDate(itemGear.lost_time.slice(0, 10))} · floats ~{Math.round(itemGear.float_prob * 100)} %
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="h-9 shrink-0 rounded-full bg-surface px-3 text-xs font-semibold text-ink shadow-sm"
+            >
+              Show all items
+            </button>
+          </div>
+        )}
+
         {shownCard && (
           <div
             key={shownCard.kind === 'gear' ? shownCard.gear.id : shownCard.cell.properties.cell_id}
@@ -409,7 +481,9 @@ export default function App() {
               picked={shownCard}
               date={date}
               windowDays={windowDays}
-              onShowDrift={showDrift}
+              mode={itemId ? 'item' : 'region'}
+              onShowDrift={showCellDrift}
+              onShowItem={showItem}
               onClose={() => setPicked(null)}
             />
           </div>
@@ -422,6 +496,7 @@ export default function App() {
             today={index.forecast_start.slice(0, 10)}
             totals={index.expected_nets_per_date}
             windowDays={windowDays}
+            itemChance={itemId ? (shownItem?.chance_total ?? null) : undefined}
             onChange={setDate}
           />
         </div>
@@ -452,7 +527,8 @@ export default function App() {
                 layers={layers}
                 onToggleLayer={(layer) => setLayers((l) => ({ ...l, [layer]: !l[layer] }))}
                 nSelected={selectedNets.length}
-                onClearSelection={() => setSelectedNets([])}
+                onClearSelection={clearSelection}
+                itemMode={itemId !== null}
                 tab={sheetTab}
                 onTabChange={setSheetTab}
               />
