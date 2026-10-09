@@ -15,9 +15,9 @@ interface Props {
 const PLAY_INTERVAL_MS = 1200
 
 const PHASES = {
-  hindcast: { label: 'Hindcast', className: 'bg-surface-2 text-ink-2' },
-  today: { label: 'Today', className: 'bg-ink text-surface' },
-  forecast: { label: 'Forecast', className: 'bg-accent text-white' },
+  hindcast: { label: 'Historikk', className: 'bg-surface-2 text-ink-2' },
+  today: { label: 'I dag', className: 'bg-ink text-surface' },
+  forecast: { label: 'Prognose', className: 'bg-accent text-white' },
 }
 
 /** Always-visible date control at the top of the bottom sheet, sized for thumbs (44 px targets). */
@@ -44,7 +44,7 @@ export default function DateBar({ dates, value, today, totals, windowDays, itemC
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2">
-        <button type="button" className={btn} onClick={() => step(-1)} disabled={i === 0} aria-label="Previous day">
+        <button type="button" className={btn} onClick={() => step(-1)} disabled={i === 0} aria-label="Forrige dag">
           ‹
         </button>
         <div className="min-w-0 flex-1 text-center">
@@ -60,12 +60,12 @@ export default function DateBar({ dates, value, today, totals, windowDays, itemC
                 <span className="font-semibold tabular-nums text-ink">
                   {itemChance === null ? '…' : formatPercent(chance)}
                 </span>{' '}
-                chance ashore in {windowDays} days
+                sjanse i land på {windowDays} dager
               </>
             ) : (
               <>
-                <span className="font-semibold tabular-nums text-ink">{formatNets(total)}</span> nets ashore in{' '}
-                {windowDays} days
+                <span className="font-semibold tabular-nums text-ink">{formatNets(total)}</span> garn i land på{' '}
+                {windowDays} dager
               </>
             )}
           </div>
@@ -75,7 +75,7 @@ export default function DateBar({ dates, value, today, totals, windowDays, itemC
           className={btn}
           onClick={() => step(1)}
           disabled={i === dates.length - 1}
-          aria-label="Next day"
+          aria-label="Neste dag"
         >
           ›
         </button>
@@ -88,7 +88,7 @@ export default function DateBar({ dates, value, today, totals, windowDays, itemC
             haptic()
             setPlaying((p) => !p)
           }}
-          aria-label={playing ? 'Pause' : 'Play through dates'}
+          aria-label={playing ? 'Pause' : 'Spill av datoene'}
         >
           {playing ? '❚❚' : '▶'}
         </button>
@@ -99,7 +99,7 @@ export default function DateBar({ dates, value, today, totals, windowDays, itemC
           value={i}
           onChange={(e) => onChange(dates[Number(e.target.value)])}
           className="w-full accent-[var(--accent)]"
-          aria-label="Forecast date"
+          aria-label="Prognosedato"
         />
       </div>
     </div>

@@ -153,6 +153,10 @@ DRIFT_CELL_KM = _env_float("DRIFT_CELL_KM", 2.0)  # grid for the per-net drift-l
 MAX_DRIFT_NETS = 25  # nets combined in one /api/drift or /api/paths request
 PATH_PARTICLES_PER_FACTOR = 6  # particle paths stored per net and wind drift factor (spaghetti view)
 COLOR_CLASSES = 5  # legend classes for expected_nets (breaks are data-driven, see aggregate.color_breaks)
+COAST_SAMPLES_PER_CELL = 4  # coast.json: land/sea samples per cell side; a cell with both is a coast cell
+# coast.json reaches this far beyond the region, so a report near the region's edge still sees the coast just
+# outside it (the app checks up to 2 km from the coast; 0.1 deg is >= 3.6 km even at 71 N)
+COAST_PAD_DEG = 0.1
 
 # --- External services ---------------------------------------------------------------
 BW_TOKEN_URL = "https://id.barentswatch.no/connect/token"

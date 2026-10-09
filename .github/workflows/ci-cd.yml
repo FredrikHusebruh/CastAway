@@ -1,11 +1,11 @@
 # CastAway CI/CD - no server needed.
 #
-# On every push / pull request: test the backend, and lint + build the app (mobile/) and the debug map (frontend/).
+# On every push / pull request: test the backend, lint + test + build the app (mobile/), lint + build the debug map (frontend/).
 # On push to Main, every morning, or the "Run workflow" button: run the forecast on GitHub's computers, put the
-# website together and upload it by FTP to Hostinger (public_html/castaway/, i.e. https://<your domain>/castaway/):
-#   castaway/        the app (mobile/), used on phones and PCs
-#   castaway/data/   the forecast files
-#   castaway/debug/  the debug map (frontend/), reading ../data; left out (with a warning) if it fails to build
+# website together and upload it by FTP to Hostinger's public_html/castaway/ = https://castaway.kiforbedrifter.no/:
+#   /                the app (mobile/), used on phones and PCs
+#   /data/           the forecast files
+#   /debug/          the debug map (frontend/), reading ../data; left out (with a warning) if it fails to build
 # Only changed files are uploaded.
 #
 # Settings (GitHub repo -> Settings -> Secrets and variables -> Actions):
@@ -61,6 +61,7 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm test # points and verification rules (src/game/*.test.ts)
       - run: npm run build
         env:
           VITE_STATIC: "true"
@@ -180,4 +181,6 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: site/
-          server-dir: public_html/castaway/
+          # relative to the FTP account's home, which already IS public_html (public_html/castaway/ here
+          # ended up in public_html/public_html/castaway/)
+          server-dir: castaway/

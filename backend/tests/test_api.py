@@ -30,6 +30,7 @@ def client(tmp_path, monkeypatch):
     (tmp_path / "lost_gear.geojson").write_text('{"type":"FeatureCollection","features":[]}')
     (tmp_path / "beaching_2026-10-09.geojson").write_text('{"type":"FeatureCollection","features":[]}')
     (tmp_path / "tracks" / "net-1.json").write_text(json.dumps(TRACK))
+    (tmp_path / "coast.json").write_text(json.dumps({"cell_deg": [0.026, 0.009], "cells": [[300, 6500]]}))
     return TestClient(api.app)
 
 
@@ -42,6 +43,10 @@ def test_gear_and_beaching(client):
     assert client.get("/api/beaching", params={"date": "2026-10-09"}).status_code == 200
     assert client.get("/api/beaching", params={"date": "2026-10-20"}).status_code == 404
     assert client.get("/api/beaching", params={"date": "not-a-date"}).status_code == 422
+
+
+def test_coast(client):
+    assert client.get("/api/coast").json()["cells"] == [[300, 6500]]
 
 
 def test_track_trimmed_to_date(client):

@@ -68,6 +68,12 @@ def gear() -> FileResponse:
     return FileResponse(_require(config.OUTPUT_DIR / "lost_gear.geojson"), media_type=GEOJSON)
 
 
+@app.get("/api/coast")
+def coast() -> FileResponse:
+    """Coast cells of the region (the app checks that found-gear reports are near the coast)."""
+    return FileResponse(_require(config.OUTPUT_DIR / "coast.json"), media_type="application/json")
+
+
 @app.get("/api/beaching")
 def beaching(date_: Annotated[date, Query(alias="date")]) -> FileResponse:
     return FileResponse(_require(config.OUTPUT_DIR / f"beaching_{date_.isoformat()}.geojson"), media_type=GEOJSON)
@@ -153,4 +159,5 @@ def paths(
     return {"ids": net_ids, "paths": trim_paths(nets, until, per_factor, step)}
 
 
-# Extension point (not built): GET /api/found -> reports of found nets, shown as a `found_reports` map layer.
+# Found-gear reports, points and the leaderboard live only on the user's device (mobile/src/game/);
+# a shared GET/POST /api/found would be the extension point for a server-side version.

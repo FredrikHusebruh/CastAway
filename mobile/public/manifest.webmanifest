@@ -1,7 +1,8 @@
 {
   "name": "CastAway",
   "short_name": "CastAway",
-  "description": "Where will lost fishing gear wash ashore?",
+  "description": "Hvor driver tapte fiskeredskap i land?",
+  "lang": "nb",
   "start_url": "./",
   "display": "standalone",
   "orientation": "portrait",
