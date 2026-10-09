@@ -1,0 +1,17 @@
+opendrift>=1.14
+xarray
+netcdf4
+pyproj
+numpy
+pandas
+geopandas
+shapely
+matplotlib
+cartopy
+requests
+python-dotenv
+fastapi
+uvicorn[standard]
+pytest
+httpx2
+ruff

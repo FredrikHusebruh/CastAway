@@ -1,0 +1,37 @@
+Ferdig forenklet
+
+Rute ukjent
+Fikspos
+Rutetype Linje
+Linjefarge Lilla
+ToolId c02b296d-4c83-444e-a026-f21246405d16
+3909.106200 662.640600 1790865000 Gulfare
+Navn Nets
+MTekst 0: Tapstidspunkt: 01.10.2026 14:30:00
+MTekst 1: Redskapstype: Nets
+3909.352200 662.947200 1790865000 Gulfare
+3909.454800 662.846400 1790865000 Gulfare
+Navn Nets
+MTekst 0: Tapstidspunkt: 01.10.2026 14:30:00
+MTekst 1: Redskapstype: Nets
+
+Rute ukjent
+Fikspos
+Rutetype Linje
+Linjefarge Gul
+ToolId
+4220.723000 1514.374000 1790265600 Gulfare
+Navn Crab pot
+MTekst 0: Tapstidspunkt: 24.09.2026 16:00:00
+MTekst 1: Redskapstype: Crab pot
+4220.557000 1514.288000 1790265600 Gulfare
+Navn Crab pot
+MTekst 0: Tapstidspunkt: 24.09.2026 16:00:00
+MTekst 1: Redskapstype: Crab pot
+
+Rute ukjent
+ToolId
+5400.000000 10800.000000 1779091380 Gulfare
+Navn Nets
+MTekst 0: Tapstidspunkt: 18.05.2026 08:03:00
+MTekst 1: Redskapstype: Nets

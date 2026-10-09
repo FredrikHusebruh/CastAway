@@ -1,0 +1,25 @@
+name: castaway
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - opendrift
+  - xarray
+  - netcdf4
+  - pyproj
+  - numpy
+  - pandas
+  - geopandas
+  - shapely
+  - matplotlib
+  - cartopy
+  - requests
+  - python-dotenv
+  - fastapi
+  - uvicorn
+  - pytest
+  - ruff
+  - pip
+  - pip:
+      - httpx2  # FastAPI/Starlette test client
