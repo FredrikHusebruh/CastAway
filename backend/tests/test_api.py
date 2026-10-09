@@ -82,3 +82,41 @@ def test_paths_endpoint(client, monkeypatch, tmp_path):
     body = client.get("/api/paths", params={"ids": "net-1", "date": "2026-10-09"}).json()
     assert body["paths"] == [{"id": "net-1", "wdf": 0.02, "stranded": True, "coords": [[70.0, 30.0], [70.1, 30.1]]}]
     assert client.get("/api/paths", params={"ids": "bad/id"}).status_code == 400
+
+
+def test_api_responses_are_never_served_stale(client):
+    for path in ("/api/dates", "/api/gear", "/api/beaching?date=2026-10-09"):
+        assert client.get(path).headers["cache-control"] == "no-cache"
+
+
+def test_item_beaching_uses_seven_day_window(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "STRANDINGS_DIR", tmp_path / "strandings")
+    (tmp_path / "strandings").mkdir()
+    item = {
+        "float_prob": 0.3,
+        "strandings": [
+            [30.0, 70.0, "2026-10-01T12:00:00+00:00", 0.0015],  # outside 3-9 Oct
+            [30.0, 70.0, "2026-10-08T12:00:00+00:00", 0.0015],
+            [30.0, 70.0, "2026-10-09T06:00:00+00:00", 0.0015],
+        ],
+    }
+    (tmp_path / "strandings" / "net-1.json").write_text(json.dumps(item))
+    body = client.get("/api/net/net-1/beaching", params={"date": "2026-10-09"}).json()
+    assert body["type"] == "FeatureCollection" and len(body["features"]) == 1
+    assert body["chance_total"] == pytest.approx(0.003)
+    assert body["features"][0]["properties"]["expected_nets"] == pytest.approx(0.003)
+    assert body["float_prob"] == 0.3
+    assert client.get("/api/net/missing/beaching", params={"date": "2026-10-09"}).status_code == 404
+    assert client.get("/api/net/bad.id/beaching", params={"date": "2026-10-09"}).status_code == 400
+
+
+def test_item_beaching_without_strandings(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "STRANDINGS_DIR", tmp_path / "strandings")
+    (tmp_path / "strandings").mkdir()
+    (tmp_path / "strandings" / "net-1.json").write_text(json.dumps({"float_prob": 0.05, "strandings": []}))
+    body = client.get("/api/net/net-1/beaching", params={"date": "2026-10-09"}).json()
+    assert body["features"] == [] and body["chance_total"] == 0.0
+
+
+def test_health(client):
+    assert client.get("/api/health").json() == {"status": "ok"}

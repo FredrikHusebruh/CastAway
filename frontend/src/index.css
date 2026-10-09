@@ -15,11 +15,11 @@
   --accent: #c24a1c;
   --gear: #1e293b;
   --track: #4a3aa7;
-  --ramp-1: #ef8a55;
-  --ramp-2: #e2622c;
-  --ramp-3: #c24a1c;
-  --ramp-4: #963511;
-  --ramp-5: #6b2208;
+  --ramp-1: #440154;
+  --ramp-2: #3b528b;
+  --ramp-3: #21918c;
+  --ramp-4: #5ec962;
+  --ramp-5: #fde725;
 }
 
 @media (prefers-color-scheme: dark) {

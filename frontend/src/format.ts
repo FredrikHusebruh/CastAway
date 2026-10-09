@@ -1,35 +1,46 @@
-// Beaching ramp (light -> dark); values mirror --ramp-1..5 in index.css (Leaflet styles need hex).
-export const RAMP = ['#ef8a55', '#e2622c', '#c24a1c', '#963511', '#6b2208'] as const
+import { type RGBA, logPosition, rampAt } from './raster'
+
+// Beaching ramp: viridis (user's choice), dark purple = low, yellow = strongest hotspots; drawn as a smooth
+// interpolated raster. Opacity rises with value so the many low-value cells recede and hotspots stand out.
+// Values mirror --ramp-1..5 in index.css.
+export const RAMP = ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'] as const
+export const RAMP_OPACITY = [0.3, 0.45, 0.65, 0.85, 0.95] as const
 export const GEAR_COLOR = '#1e293b'
 
-// Drift-likelihood heat map: one violet hue, light -> dark, validated as an ordinal ramp against the
-// OSM sea colour (#aad3df; lightest step 2.06:1). Classes are on relative likelihood (top cell = 1).
-export const DRIFT_RAMP = ['#8d80e6', '#6f5fd8', '#5444bd', '#3a2b95', '#231766'] as const
-export const DRIFT_BREAKS = [0.02, 0.05, 0.15, 0.4]
-export const DRIFT_LABELS = ['Very low', 'Low', 'Medium', 'High', 'Very high']
-export const SELECTED_COLOR = DRIFT_RAMP[4]
+// Viridis (user's choice): perceptually uniform, colour-blind safe; dark purple = low, yellow = high.
+export const VIRIDIS = ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'] as const
+export const DRIFT_RAMP = VIRIDIS
+const DRIFT_OPACITY = [0.75, 0.75, 0.75, 0.75, 0.75] as const
+const DRIFT_MIN = 0.01 // relative likelihood shown at the bottom of the scale; below it the heat map fades out
+export const SELECTED_COLOR = VIRIDIS[0]
 
-// Particle paths are coloured by windage (ordinal): steps of the same validated violet ramp, light = no wind.
-export const WINDAGE_RAMP = [DRIFT_RAMP[0], DRIFT_RAMP[2], DRIFT_RAMP[3], DRIFT_RAMP[4]] as const
-export const STRANDED_COLOR = RAMP[2]
+// Particle paths are coloured by windage on the same viridis scale: purple = no wind push, yellow = 3%.
+export const WINDAGE_RAMP = ['#440154', '#31688e', '#35b779', '#fde725'] as const
+export const STRANDED_COLOR = '#f03b20'
 
 export function windageColor(wdf: number, factors: number[]): string {
   const k = factors.findIndex((f) => Math.abs(f - wdf) < 1e-6)
   return WINDAGE_RAMP[Math.min(Math.max(k, 0), WINDAGE_RAMP.length - 1)]
 }
 
-/** Class index 0..RAMP.length-1 for a value, given ascending class breaks. */
-export function classIndex(value: number, breaks: number[]): number {
-  const i = breaks.findIndex((b) => value < b)
-  return Math.min(i === -1 ? breaks.length : i, RAMP.length - 1)
+/** Log-scale range of the beaching colour scale, one break-step beyond the first and last class break. */
+export function beachingRange(breaks: number[]): [number, number] {
+  if (breaks.length === 0) return [1e-4, 1e-1]
+  const ratio = breaks.length > 1 ? breaks[1] / breaks[0] : 3
+  return [breaks[0] / ratio, breaks[breaks.length - 1] * ratio]
 }
 
-export function rampColor(value: number, breaks: number[]): string {
-  return RAMP[classIndex(value, breaks)]
+/** Beaching colour for an (interpolated) value; fades to transparent below the bottom of the scale. */
+export function beachingRGBA(v: number, breaks: number[]): RGBA {
+  const [lo, hi] = beachingRange(breaks)
+  const c = rampAt(RAMP, RAMP_OPACITY, logPosition(Math.max(v, lo), lo, hi))
+  return v < lo ? [c[0], c[1], c[2], c[3] * (v / lo)] : c
 }
 
-export function driftColor(likelihood: number): string {
-  return DRIFT_RAMP[classIndex(likelihood, DRIFT_BREAKS)]
+/** Drift-likelihood colour (viridis on a log scale from 1% to 100% of the top cell). */
+export function driftRGBA(v: number): RGBA {
+  const c = rampAt(DRIFT_RAMP, DRIFT_OPACITY, logPosition(Math.max(v, DRIFT_MIN), DRIFT_MIN, 1))
+  return v < DRIFT_MIN ? [c[0], c[1], c[2], c[3] * (v / DRIFT_MIN)] : c
 }
 
 /** Expected nets are small fractions; show two significant digits. */
@@ -37,6 +48,14 @@ export function formatNets(value: number): string {
   if (value === 0) return '0'
   if (value >= 10) return value.toFixed(0)
   return value.toPrecision(2)
+}
+
+/** A probability (0-1) as a percentage, e.g. 0.036 -> "3.6 %". */
+export function formatPercent(p: number): string {
+  const pct = p * 100
+  if (pct === 0) return '0 %'
+  if (pct < 0.1) return '<0.1 %'
+  return `${pct < 10 ? pct.toFixed(1) : pct.toFixed(0)} %`
 }
 
 const GEAR_LABELS: Record<string, string> = {

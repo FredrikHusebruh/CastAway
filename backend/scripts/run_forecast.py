@@ -50,7 +50,7 @@ def main() -> None:
 
     t = time.perf_counter()
     readers = simulate.make_readers(files)
-    run_dir = simulate.simulate_all(gear, readers, window, args.force)
+    run_dir = simulate.simulate_all(gear, readers, window, args.region, args.force)
     timings["simulate"] = time.perf_counter() - t
 
     t = time.perf_counter()

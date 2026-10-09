@@ -41,6 +41,7 @@ RUNS_DIR = OUTPUT_DIR / "runs"
 TRACKS_DIR = OUTPUT_DIR / "tracks"
 DRIFT_DIR = OUTPUT_DIR / "drift"
 PATHS_DIR = OUTPUT_DIR / "paths"
+STRANDINGS_DIR = OUTPUT_DIR / "strandings"
 
 
 # --- Region ------------------------------------------------------------------
@@ -65,13 +66,15 @@ class BBox:
         return [self.west, self.south, self.east, self.north]
 
 
-# Default chosen from data: East Finnmark holds most recent lost-gear reports.
+# Default test area: Kristiansand / Agder coast (Mandal to Grimstad + Skagerrak). Real reports there are
+# sparse (3 in the last year), so it is mainly used with mock data; East Finnmark has the most real reports.
 REGIONS: dict[str, BBox] = {
+    "kristiansand": BBox(7.0, 57.75, 8.9, 58.45),
     "finnmark_east": BBox(25.0, 69.6, 31.5, 71.3),
     "vestland": BBox(4.5, 59.5, 7.5, 62.0),
     "lofoten": BBox(12.0, 67.5, 16.5, 68.8),
 }
-REGION = _env_str("REGION", "finnmark_east")
+REGION = _env_str("REGION", "kristiansand")
 FORCING_MARGIN_DEG = 0.3  # extra forcing around the bbox so particles can leave it
 
 
@@ -123,7 +126,7 @@ PARTICLES_PER_NET = _env_int("PARTICLES_PER_NET", 200)
 SEED_RADIUS_M = _env_float("SEED_RADIUS_M", 500.0)
 WIND_DRIFT_FACTORS: tuple[float, ...] = (0.0, 0.01, 0.02, 0.03)
 TIME_STEP_MINUTES = 15
-OUTPUT_STEP_MINUTES = 60
+OUTPUT_STEP_MINUTES = 15  # = model step, so drawn paths follow the water instead of cutting corners over land
 NETS_PER_RUN = _env_int("NETS_PER_RUN", 25)
 HORIZONTAL_DIFFUSIVITY = 10.0  # m2/s, unresolved sub-grid turbulence
 MAX_SPEED_MS = 3.5  # sizes OpenDrift's reader data blocks; tidal sounds in Finnmark exceed the default 2 m/s
@@ -148,7 +151,7 @@ CELL_SIZE_KM = _env_float("CELL_SIZE_KM", 1.0)
 BEACHING_WINDOW_DAYS = _env_int("BEACHING_WINDOW_DAYS", 7)  # each date shows strandings in the N days up to it
 DRIFT_CELL_KM = _env_float("DRIFT_CELL_KM", 2.0)  # grid for the per-net drift-likelihood heat map
 MAX_DRIFT_NETS = 25  # nets combined in one /api/drift or /api/paths request
-PATH_PARTICLES_PER_FACTOR = 10  # particle paths stored per net and wind drift factor (spaghetti view)
+PATH_PARTICLES_PER_FACTOR = 6  # particle paths stored per net and wind drift factor (spaghetti view)
 COLOR_CLASSES = 5  # legend classes for expected_nets (breaks are data-driven, see aggregate.color_breaks)
 
 # --- External services ---------------------------------------------------------------
