@@ -1,5 +1,5 @@
 import L from 'leaflet'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CircleMarker, ImageOverlay, MapContainer, Marker, Pane, TileLayer, useMap, useMapEvents, ZoomControl } from 'react-leaflet'
 import type { CellCollection, CellFeature, DriftResponse, GearCollection, GearProps, ParticlePath } from '../api'
 import { GEAR_COLOR, SELECTED_COLOR, STRANDED_COLOR, beachingRGBA, driftRGBA, ringCenter, windageColor } from '../format'
@@ -52,7 +52,8 @@ const DRIFT_SMOOTH_CELLS = 0.8
 // spot share one square so they don't pile up into blobs.
 const STRANDED_SQUARE_M = 100
 
-// Panes, bottom to top: drift raster + paths < coast cells < lost gear. Own panes let the cells fade alone.
+// Panes, bottom to top: coast cells < drift raster + paths < lost gear (desktop also draws drift above the
+// beaching raster). Own panes let the cells fade on their own.
 const DRIFT_PANE = 'drift'
 const CELLS_PANE = 'cells'
 const GEAR_PANE = 'gear'
@@ -98,6 +99,18 @@ function TapPicker({ gear, cells, layers, onPick }: TapProps) {
       onPick(best)
     },
   })
+  return null
+}
+
+/** Lost-gear dot radius by zoom: a phone shows the whole coast one zoom level further out than desktop, so
+ *  full-size dots would hide the beaching glow there. Taps don't depend on it (TapPicker uses a fixed radius). */
+function gearRadius(zoom: number): number {
+  return zoom <= 8 ? 3 : zoom <= 9 ? 4 : 5
+}
+
+function ZoomWatcher({ onZoom }: { onZoom: (zoom: number) => void }) {
+  const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) })
+  useEffect(() => onZoom(map.getZoom()), [map, onZoom])
   return null
 }
 
@@ -302,6 +315,7 @@ function FlyTo({ focus }: { focus: [number, number] | null }) {
 
 export default function MapView(props: Props) {
   const [w, s, e, n] = props.bbox
+  const [zoom, setZoom] = useState(0)
   const pickedGearId = props.picked?.kind === 'gear' ? props.picked.gear.id : null
   const { onPick } = props
   return (
@@ -322,19 +336,20 @@ export default function MapView(props: Props) {
       <ZoomControl position="topleft" />
       <MapReady onReady={props.onMapReady} />
       <ResizeWatcher />
+      <ZoomWatcher onZoom={setZoom} />
       <TapPicker gear={props.gear} cells={props.cells} layers={props.layers} onPick={onPick} />
       <FlyTo focus={props.focus} />
       <FitToPaths paths={props.paths} selectionKey={props.selectedNets.join()} />
 
-      <Pane name={DRIFT_PANE} style={{ zIndex: 405, pointerEvents: 'none' }}>
-        {props.layers.drift && props.drift && <DriftLayer drift={props.drift} />}
-        {props.layers.paths && props.paths && <PathsCanvas paths={props.paths} factors={props.windageFactors} />}
-      </Pane>
-
-      <Pane name={CELLS_PANE} style={{ zIndex: 410, pointerEvents: 'none' }}>
+      <Pane name={CELLS_PANE} style={{ zIndex: 405, pointerEvents: 'none' }}>
         {props.layers.beaching && props.cells && <BeachingLayer cells={props.cells} breaks={props.breaks} />}
       </Pane>
       <CellsFade cells={props.cells} />
+
+      <Pane name={DRIFT_PANE} style={{ zIndex: 410, pointerEvents: 'none' }}>
+        {props.layers.drift && props.drift && <DriftLayer drift={props.drift} />}
+        {props.layers.paths && props.paths && <PathsCanvas paths={props.paths} factors={props.windageFactors} />}
+      </Pane>
 
       <Pane name={GEAR_PANE} style={{ zIndex: 420, pointerEvents: 'none' }}>
         {props.layers.gear &&
@@ -344,10 +359,10 @@ export default function MapView(props: Props) {
               <CircleMarker
                 key={f.properties.id}
                 center={[f.geometry.coordinates[1], f.geometry.coordinates[0]]}
-                radius={selected ? 8 : 6}
+                radius={selected ? 7 : gearRadius(zoom)}
                 pathOptions={{
                   color: '#ffffff',
-                  weight: selected ? 3 : 1.5,
+                  weight: selected ? 3 : zoom <= 8 ? 1 : 1.5,
                   fillColor: selected ? SELECTED_COLOR : GEAR_COLOR,
                   fillOpacity: 0.95,
                 }}
