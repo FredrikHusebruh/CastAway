@@ -1,5 +1,6 @@
 import type { CellFeature, IndexInfo } from '../api'
 import { formatDateTime, formatKm, formatNets, formatPercent, ringCenter } from '../format'
+import { usePlaceName } from '../places'
 import Legend from './Legend'
 import type { Layers } from './Map'
 
@@ -41,6 +42,18 @@ interface Props {
   itemMode: boolean // one lost item in focus: values are its chance (%), not expected nets
   tab: Tab
   onTabChange: (tab: Tab) => void
+}
+
+/** A coast spot by name ("Kvalvika, Vardø"), with the coordinates as a fallback while loading or offline. */
+function PlaceLabel({ lat, lng }: { lat: number; lng: number }) {
+  const name = usePlaceName(lat, lng)
+  const coords = `${lat.toFixed(3)}°N ${lng.toFixed(3)}°Ø`
+  if (!name) return <span className={name === undefined ? 'text-ink-3' : ''}>{coords}</span>
+  return (
+    <span title={coords}>
+      <span className="font-medium text-ink">{name}</span>
+    </span>
+  )
 }
 
 /** The expandable part of the bottom sheet: everything the desktop sidebar shows below the date slider. */
@@ -108,7 +121,7 @@ export default function SheetTabs(props: Props) {
                           className="flex min-h-12 w-full items-center justify-between gap-2 text-left text-sm active:bg-surface-2"
                         >
                           <span className="min-w-0 text-ink-2">
-                            {k + 1}. {lat.toFixed(3)}°N {lng.toFixed(3)}°Ø
+                            {k + 1}. <PlaceLabel lat={lat} lng={lng} />
                             {km !== null && <span className="block text-xs text-ink-3">{formatKm(km)} unna</span>}
                           </span>
                           <span className="shrink-0 font-semibold tabular-nums">

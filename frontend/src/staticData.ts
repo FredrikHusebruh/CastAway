@@ -71,13 +71,15 @@ function trimPaths(nets: Record<string, NetPaths>, until: string, perFactor: num
       taken.set(p.wdf, n + 1)
       const coords = p.coords.slice(0, Math.max(limit - p.first + 1, 0))
       if (coords.length < 2) continue
-      const thinned = coords.filter((_, i) => i % step === 0)
-      if ((coords.length - 1) % step) thinned.push(coords[coords.length - 1])
+      const kept = coords.map((_, i) => i).filter((i) => i % step === 0)
+      if ((coords.length - 1) % step) kept.push(coords.length - 1)
+      const t0 = Date.parse(net.start) + p.first * stepMs
       out.push({
         id,
         wdf: p.wdf,
         stranded: p.stranded && coords.length === p.coords.length,
-        coords: thinned.map(([x, y]) => [y, x]),
+        coords: kept.map((i) => [coords[i][1], coords[i][0]]),
+        times: kept.map((i) => t0 + i * stepMs),
       })
     }
   }
@@ -193,4 +195,18 @@ export async function staticItemBeaching(id: string, date: string): Promise<Item
   const total = [...cells.values()].reduce((sum, c) => sum + c.sum, 0)
   const collection: CellCollection = { type: 'FeatureCollection', features }
   return { ...collection, id, float_prob: item.float_prob, chance_total: round(total, 5) }
+}
+
+// --- every item's strandings, for the mobile app's hourly playback -------------------------------
+/** One stranded particle: [lon, lat, epoch ms, weight (its share of an expected net)]. */
+export type Stranding = [number, number, number, number]
+
+/** Where and when particles of the given items stranded, sorted by time. Missing files are skipped. */
+export async function staticStrandingTimes(ids: string[]): Promise<Stranding[]> {
+  const files = ids.filter((i) => /^[A-Za-z0-9-]{1,64}$/.test(i)).map((i) => `strandings/${i}.json`)
+  const loaded = await loadAll<ItemStrandings>(files, 6)
+  const out: Stranding[] = []
+  for (const item of loaded)
+    for (const [lon, lat, time, weight] of item?.strandings ?? []) out.push([lon, lat, Date.parse(time), weight])
+  return out.sort((a, b) => a[2] - b[2])
 }

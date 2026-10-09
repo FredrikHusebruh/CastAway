@@ -1,4 +1,4 @@
-import type L from 'leaflet'
+import type { Map as MLMap } from 'maplibre-gl'
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   type CellCollection,
@@ -18,6 +18,7 @@ import {
   fetchPaths,
   type ParticlePath,
 } from './api'
+import { type Stranding, staticStrandingTimes } from './staticData'
 import DateBar from './components/DateBar'
 import DetailCard from './components/DetailCard'
 import Guide from './components/Guide'
@@ -37,6 +38,34 @@ const N_HOTSPOTS = 5
 const STALE_AFTER_MS = 24 * 3600 * 1000 // forecasts older than this get an "outdated" warning
 const DEFAULT_WINDOW_DAYS = 7
 const DEFAULT_WINDAGE = [0, 0.01, 0.02, 0.03]
+
+// Playback (the Play button): steps through time half an hour at a time, so drifting items move smoothly and the
+// coast fills in gradually. One day takes 48 steps x 40 ms ~ 2 s.
+const PLAY_STEP_MS = 30 * 60_000
+const PLAY_TICK_MS = 40
+const DAY_MS = 86_400_000
+// The map opens at the user's position only this close to the forecast region (degrees around its bbox, ~50 km);
+// further away, e.g. in southern Norway, it would open on an empty map, so it shows the region instead.
+const START_MARGIN_DEG: [number, number] = [1.3, 0.45] // [lon, lat]
+
+const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`)
+/** The date a playback time belongs to: midnight still counts as the end of the day before. */
+const dayOf = (t: number) => new Date(t - 1).toISOString().slice(0, 10)
+const prevDay = (day: string) => new Date(dayStart(day) - DAY_MS).toISOString().slice(0, 10)
+
+/** Expected nets ashore in the `windowDays` up to time `t`, summed from the strandings themselves (exact per step). */
+function windowWeight(strandings: Stranding[], t: number, windowDays: number): number {
+  const from = t - windowDays * DAY_MS
+  let sum = 0
+  for (const [, , at, weight] of strandings) if (at >= from && at < t) sum += weight // [from, t), as the backend's UTC days
+  return sum
+}
+
+/** Whether [lat, lon] lies in the region's bbox or within START_MARGIN_DEG of it. */
+function nearRegion([lat, lon]: [number, number], [w, s, e, n]: [number, number, number, number]): boolean {
+  const [dLon, dLat] = START_MARGIN_DEG
+  return lon >= w - dLon && lon <= e + dLon && lat >= s - dLat && lat <= n + dLat
+}
 
 function defaultDate(index: IndexInfo): string {
   const today = index.forecast_start.slice(0, 10)
@@ -94,7 +123,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [date, setDate] = useState<string>('')
   const [gear, setGear] = useState<GearCollection | null>(null)
-  const [cells, setCells] = useState<CellCollection | null>(null)
+  const [cellsByDate, setCellsByDate] = useState<Record<string, CellCollection>>({})
+  // playback: the current time (null = not playing and not paused mid-day), and whether it is running
+  const [playT, setPlayT] = useState<number | null>(null)
+  const [playing, setPlaying] = useState(false)
+  const [strandings, setStrandings] = useState<Stranding[] | null>(null)
   const [selectedNets, setSelectedNets] = useState<string[]>([])
   const [drift, setDrift] = useState<DriftResponse | null>(null)
   const [paths, setPaths] = useState<{ ids: string[]; paths: ParticlePath[] } | null>(null)
@@ -115,7 +148,7 @@ export default function App() {
   const [overlay, setOverlay] = useState<'guide' | ScreenId | null>(null)
   const [outdated, setOutdated] = useState(false) // forecast run older than STALE_AFTER_MS
   const [pending, setPending] = useState(0) // requests in flight, for the loading bar
-  const mapRef = useRef<L.Map | null>(null)
+  const mapRef = useRef<MLMap | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const [panelHeight, setPanelHeight] = useState(0)
   const { dragHeight, dragHandlers } = useSheetDrag(expanded, setExpanded, panelRef)
@@ -145,7 +178,7 @@ export default function App() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [index])
-  const onMapReady = useCallback((map: L.Map) => {
+  const onMapReady = useCallback((map: MLMap) => {
     mapRef.current = map
   }, [])
 
@@ -164,33 +197,127 @@ export default function App() {
       .catch(() => setCoast(null))
   }, [])
 
+  // open the map where the user is: ask for the position once at start (silently falls back to the whole region)
+  const [startPos, setStartPos] = useState<[number, number] | null>(null)
   useEffect(() => {
-    if (!date) return
-    let stale = false
-    track(fetchBeaching(date))
-      .then((c) => {
-        if (stale) return
-        setCells(c)
-        // a picked cell belongs to one date's 7-day window; drop it when the date changes
-        setPicked((p) => (p?.kind === 'cell' ? null : p))
-      })
-      .catch((e: Error) => !stale && setError(e.message))
-    return () => {
-      stale = true
+    if (!window.isSecureContext || !navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const at: [number, number] = [pos.coords.latitude, pos.coords.longitude]
+        setUserPos((p) => p ?? at)
+        setStartPos(at)
+      },
+      () => {},
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+    )
+  }, [])
+
+  // the selected date's coast cells, plus the day before while playing (cross-faded by the hour); kept once loaded
+  const prevDate = date && index && playT !== null && index.dates.includes(prevDay(date)) ? prevDay(date) : null
+  const loadedDates = useRef(new Set<string>())
+  useEffect(() => {
+    for (const day of [date, prevDate]) {
+      if (!day || loadedDates.current.has(day)) continue
+      loadedDates.current.add(day)
+      track(fetchBeaching(day))
+        .then((c) => setCellsByDate((all) => ({ ...all, [day]: c })))
+        .catch((e: Error) => {
+          loadedDates.current.delete(day)
+          setError(e.message)
+        })
     }
-  }, [date, track])
+  }, [date, prevDate, track])
+  const cells = cellsByDate[date] ?? null
+
+  /** Changes the date; a picked cell belongs to one date's 7-day window, so it is dropped. */
+  const dateRef = useRef(date)
+  useEffect(() => {
+    dateRef.current = date
+  }, [date])
+  const changeDate = useCallback((day: string) => {
+    if (dateRef.current === day) return
+    dateRef.current = day
+    setDate(day)
+    setPicked((p) => (p?.kind === 'cell' ? null : p))
+  }, [])
+  /** A date picked by hand (arrows, slider): leaves playback. */
+  const pickDate = useCallback(
+    (day: string) => {
+      setPlaying(false)
+      setPlayT(null)
+      changeDate(day)
+    },
+    [changeDate],
+  )
+
+  // playback clock: advance half an hour per tick, following the date along; stop at the end
+  const playRef = useRef<number | null>(null)
+  useEffect(() => {
+    playRef.current = playT
+  }, [playT])
+  useEffect(() => {
+    if (!playing || !index) return
+    const end = dayStart(index.dates[index.dates.length - 1]) + DAY_MS
+    const timer = setInterval(() => {
+      const t = Math.min((playRef.current ?? end) + PLAY_STEP_MS, end)
+      playRef.current = t
+      setPlayT(t)
+      changeDate(dayOf(t))
+      if (t >= end) setPlaying(false)
+    }, PLAY_TICK_MS)
+    return () => clearInterval(timer)
+  }, [playing, index, changeDate])
+
+  /** Every stranding in the region, loaded once: for the live, per-hour beaching map (static site only). */
+  const ensureStrandings = useCallback(() => {
+    if (!STATIC || strandings !== null || !gear) return
+    setStrandings([])
+    track(staticStrandingTimes(gear.features.map((f) => f.properties.id)))
+      .then(setStrandings)
+      .catch(() => setStrandings(null))
+  }, [strandings, gear, track])
+
+  const play = useCallback(() => {
+    if (!index) return
+    const first = dayStart(index.dates[0])
+    const end = dayStart(index.dates[index.dates.length - 1]) + DAY_MS
+    // continue from the clock (paused or scrubbed); otherwise from the end of the selected date's window, which is
+    // what the map shows for that date (or over from the start at the end)
+    let t = playT ?? dayStart(date) + DAY_MS
+    if (t >= end) t = first
+    playRef.current = t
+    setPlayT(t)
+    changeDate(dayOf(t + 1))
+    setPlaying(true)
+    ensureStrandings()
+  }, [index, playT, date, changeDate, ensureStrandings])
+
+  /** The slider dragged to time `t` (hour steps): the map shows that moment, paused. */
+  const scrubTo = useCallback(
+    (t: number) => {
+      setPlaying(false)
+      playRef.current = t
+      setPlayT(t)
+      changeDate(dayOf(t))
+      ensureStrandings()
+    },
+    [changeDate, ensureStrandings],
+  )
+  const pause = useCallback(() => setPlaying(false), [])
 
   // particle paths and (if shown) the drift heat map for the selected nets, up to the selected date
+  // during playback the whole period is loaded once and the map cuts the paths at the playback time
+  const pathsDate = playT !== null && index ? index.dates[index.dates.length - 1] : date
   useEffect(() => {
-    if (!date || selectedNets.length === 0) return
+    if (!pathsDate || selectedNets.length === 0) return
     let stale = false
-    track(fetchPaths(selectedNets, date))
+    track(fetchPaths(selectedNets, pathsDate))
       .then((p) => !stale && setPaths(p))
       .catch((e: Error) => !stale && setError(e.message))
     return () => {
       stale = true
     }
-  }, [selectedNets, date, track])
+  }, [selectedNets, pathsDate, track])
 
   useEffect(() => {
     if (!date || selectedNets.length === 0 || !layers.drift) return
@@ -265,12 +392,12 @@ export default function App() {
     const map = mapRef.current
     if (!map || !index) return
     const [w, s, e, n] = index.bbox
-    map.flyToBounds(
+    map.fitBounds(
       [
-        [s, w],
-        [n, e],
+        [w, s],
+        [e, n],
       ],
-      { duration: 0.8 },
+      { padding: 8, duration: 800 },
     )
     setPicked(null)
     setExpanded(false)
@@ -321,6 +448,9 @@ export default function App() {
 
   const shownItem = itemBeaching && itemBeaching.id === itemId ? itemBeaching : null
   const shownCells = itemId ? shownItem : cells
+  // playback cross-fade: how far into the day the clock is (1 = the end of the day, as the date's own window)
+  const blend = playT !== null && date ? Math.min(Math.max((playT - dayStart(date)) / DAY_MS, 0), 1) : 1
+  const prevCells = !itemId && prevDate ? (cellsByDate[prevDate] ?? null) : null
   const breaks = useMemo(() => index?.color_breaks ?? [], [index])
   const [shownItemBanner, itemBannerLeaving] = usePresence(itemId)
   // from the banner's (exit-animation-retained) id, so the text stays put while it fades out
@@ -361,6 +491,8 @@ export default function App() {
   if (!index) return <LoadingSkeleton />
 
   const windowDays = index.beaching_window_days ?? DEFAULT_WINDOW_DAYS
+  // playback with every stranding loaded: the map and the total follow the clock exactly (see Map's live heat map)
+  const live = playT !== null && !itemId && !!strandings && strandings.length > 0
   const windageFactors = index.wind_drift_factors ?? DEFAULT_WINDAGE
   // only show a heat map / paths that belong to the current selection (hides stale/cleared ones)
   const shownDrift = drift && drift.ids.join() === selectedNets.join() ? drift : null
@@ -411,6 +543,12 @@ export default function App() {
           attribution={index.attribution}
           gear={gear}
           cells={shownCells}
+          prevCells={prevCells}
+          blend={prevCells ? blend : 1}
+          time={playT}
+          stepMs={playing ? PLAY_TICK_MS : 0}
+          strandings={itemId ? null : strandings}
+          windowDays={windowDays}
           breaks={breaks}
           drift={shownDrift}
           paths={shownPaths}
@@ -421,6 +559,7 @@ export default function App() {
           layers={layers}
           focus={focus}
           userPos={userPos}
+          startPos={startPos && nearRegion(startPos, index.bbox) ? startPos : null}
           onMapReady={onMapReady}
           onPick={pick}
         />
@@ -526,10 +665,21 @@ export default function App() {
             dates={index.dates}
             value={date}
             today={index.forecast_start.slice(0, 10)}
-            totals={index.expected_nets_per_date}
+            total={
+              live && strandings && playT !== null
+                ? windowWeight(strandings, playT, windowDays)
+                : prevDate && index.expected_nets_per_date[prevDate] !== undefined
+                ? index.expected_nets_per_date[prevDate] * (1 - blend) + (index.expected_nets_per_date[date] ?? 0) * blend
+                : (index.expected_nets_per_date[date] ?? 0)
+            }
             windowDays={windowDays}
             itemChance={itemId ? (shownItem?.chance_total ?? null) : undefined}
-            onChange={setDate}
+            time={playT}
+            playing={playing}
+            onPlay={play}
+            onPause={pause}
+            onChange={pickDate}
+            onScrub={scrubTo}
           />
         </div>
 

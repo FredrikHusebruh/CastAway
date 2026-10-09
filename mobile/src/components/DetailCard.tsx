@@ -1,9 +1,17 @@
+import type { CellFeature } from '../api'
 import { directionsUrl, formatDate, formatDateTime, formatNets, formatPercent, gearLabel, ringCenter } from '../format'
 import { reportTitle } from '../game/labels'
 import { type Report, linesTotal } from '../game/rules'
 import { usePhoto } from '../game/store'
+import { usePlaceName } from '../places'
 import type { BeachingMode, Picked } from './Map'
 import { StatusChip } from './Points'
+
+/** The coast cell's place name once known, else "Kyststrekning". */
+function CellName({ cell }: { cell: CellFeature }) {
+  const [lat, lng] = ringCenter(cell.geometry.coordinates[0])
+  return <>{usePlaceName(lat, lng) ?? 'Kyststrekning'}</>
+}
 
 interface Props {
   picked: Picked
@@ -77,7 +85,7 @@ export default function DetailCard({ picked, date, windowDays, mode, onShowDrift
       ) : mode === 'item' ? (
         <>
           <div className={kicker}>
-            Kyststrekning · {windowDays} dager til {formatDate(date)}
+            <CellName cell={picked.cell} /> · {windowDays} dager til {formatDate(date)}
           </div>
           <div>
             <span className="text-2xl font-semibold">{formatPercent(picked.cell.properties.expected_nets)}</span> sjanse
@@ -89,7 +97,7 @@ export default function DetailCard({ picked, date, windowDays, mode, onShowDrift
       ) : (
         <>
           <div className={kicker}>
-            Kyststrekning · {windowDays} dager til {formatDate(date)}
+            <CellName cell={picked.cell} /> · {windowDays} dager til {formatDate(date)}
           </div>
           <div>
             <span className="text-2xl font-semibold">{formatNets(picked.cell.properties.expected_nets)}</span> forventede

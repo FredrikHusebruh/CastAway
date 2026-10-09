@@ -16,12 +16,12 @@ const STEPS: Step[] = [
   {
     target: 'map',
     title: 'Kartet',
-    body: 'Fargene langs kysten viser hvor garn ventes å drive i land: lilla er lite, gult er mest. Mørke prikker er meldte tapte redskap, og grønne er dine egne funn. Trykk på et tapt redskap for å se hvor akkurat det driver i land, eller på kysten for detaljer.',
+    body: 'Fargene langs kysten viser hvor garn ventes å drive i land: lilla er lite, gult er mest. Ikonene er meldte tapte redskap, og grønne prikker er dine egne funn. Trykk på et tapt redskap for å se hvor akkurat det driver i land, eller på kysten for detaljer.',
   },
   {
     target: 'date',
     title: 'Velg dato',
-    body: 'Bla mellom dagene med ‹ ›, dra i glidebryteren eller trykk spill av. Tidligere dager er historikk, senere dager er prognose. Hver dato viser de 7 dagene fram til den.',
+    body: 'Bla mellom dagene med ‹ ›, dra glidebryteren til en hvilken som helst time, eller trykk ▶ for å spille av time for time og se redskapene drive. Tidligere dager er historikk, senere dager er prognose. Hver dato viser de 7 dagene fram til den.',
   },
   {
     target: 'panel',

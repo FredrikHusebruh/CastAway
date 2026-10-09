@@ -1,5 +1,4 @@
 @import 'tailwindcss';
-@import 'leaflet/dist/leaflet.css';
 
 /* Colour tokens. Beaching ramp: viridis (dark purple -> yellow), mirrored from RAMP in format.ts. */
 :root {
@@ -18,6 +17,7 @@
   --ramp-3: #21918c;
   --ramp-4: #5ec962;
   --ramp-5: #fde725;
+  --selected: #440154;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -100,8 +100,7 @@
 
 /* Press feedback: buttons sink slightly while pressed (utilities can still override transitions). */
 @layer base {
-  button,
-  .leaflet-bar a {
+  button {
     transition:
       transform 120ms ease-out,
       background-color 150ms,
@@ -109,20 +108,19 @@
       opacity 150ms;
     touch-action: manipulation;
   }
-  button:active:not(:disabled),
-  .leaflet-bar a:active {
+  button:active:not(:disabled) {
     transform: scale(0.96);
   }
 }
 
-/* Pulsing ring around the selected item on the map (a Leaflet divIcon). */
+/* Pulsing ring around the selected item on the map (a MapLibre marker). */
 .pulse-ring {
   position: absolute;
   left: -20px;
   top: -20px;
   width: 40px;
   height: 40px;
-  border: 3px solid #440154; /* SELECTED_COLOR */
+  border: 3px solid var(--selected); /* the selected dot's colour (MAP_COLORS in mapStyle.ts) */
   border-radius: 9999px;
   pointer-events: none;
   animation: pulse-ring 1.6s ease-out infinite;
@@ -218,25 +216,64 @@ input[type='range']::-moz-range-thumb {
   height: 1.5rem;
 }
 
-/* Thumb-sized zoom buttons (Leaflet's default is 30 px). */
-.leaflet-touch .leaflet-bar a {
+/* Map controls (MapLibre): thumb-sized zoom buttons, themed for light and dark mode. */
+.maplibregl-ctrl.maplibregl-ctrl-group {
+  background: var(--surface);
+  border-radius: 12px;
+}
+
+.maplibregl-ctrl.maplibregl-ctrl-group:not(:empty) {
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.2);
+}
+
+.maplibregl-ctrl.maplibregl-ctrl-group button {
   width: 40px;
   height: 40px;
-  line-height: 40px;
-  font-size: 22px;
+}
+
+.maplibregl-ctrl.maplibregl-ctrl-group button + button {
+  border-top-color: var(--border);
+}
+
+:root[data-theme='dark'] .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+    filter: invert(1);
+  }
 }
 
 /* The bottom sheet overlaps the map by --sheet-overlap so its rounded corners show over the map;
-   lift Leaflet's bottom controls (the attribution) clear of it. */
+   lift the map's bottom controls (the attribution) clear of it. */
 :root {
   --sheet-overlap: 1.25rem;
 }
 
-.leaflet-bottom {
+.maplibregl-map .maplibregl-ctrl-bottom-left,
+.maplibregl-map .maplibregl-ctrl-bottom-right {
   bottom: var(--sheet-overlap);
 }
 
-.leaflet-control-attribution {
-  font-size: 10px;
-  line-height: 1.3;
+/* Map credits: required (data licences + CLAUDE.md), so they stay readable, but as small and quiet as possible:
+   tiny grey text straight on the map with a soft white halo, no strip or box. */
+.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  margin: 0;
+  padding: 0 5px 1px;
+  font-size: 7.5px;
+  line-height: 1.2;
+  background: none;
+  color: rgb(71 85 105 / 0.8);
+  text-shadow: 0 0 2px rgb(255 255 255 / 0.9);
+}
+
+.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.maplibregl-canvas-container,
+.maplibregl-canvas {
+  background: var(--surface-2);
 }
