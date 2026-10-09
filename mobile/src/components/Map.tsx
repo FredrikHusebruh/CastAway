@@ -46,8 +46,10 @@ const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright
 
 // 1 km cells are only a few pixels wide at region zoom, so below this zoom they are drawn as dots.
 const CELL_POLYGON_MIN_ZOOM = 11
-// Extra hit area (px) around canvas shapes so small dots are easy to tap with a finger.
-const TAP_TOLERANCE = 12
+// How far (px) from a dot a finger tap still selects it. Small dots need a generous area.
+const TAP_RADIUS = 22
+// A tap this close (px) to a lost-gear dot means the user is on it, even inside a large 1 km cell polygon.
+const GEAR_DIRECT_HIT = 9
 
 function ZoomWatcher({ onZoom }: { onZoom: (zoom: number) => void }) {
   const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) })
@@ -55,9 +57,50 @@ function ZoomWatcher({ onZoom }: { onZoom: (zoom: number) => void }) {
   return null
 }
 
-/** Tapping empty map closes the detail card. Shapes set bubblingMouseEvents: false, so their taps don't land here. */
-function BlankTap({ onTap }: { onTap: () => void }) {
-  useMapEvents({ click: onTap })
+interface TapProps {
+  gear: GearCollection | null
+  cells: CellCollection | null
+  layers: Layers
+  onPick: (picked: Picked | null) => void
+}
+
+/**
+ * Picks whatever is nearest the tap: a lost-gear dot, a coast cell, or nothing (closes the card).
+ * Leaflet's own hit test gives a tap to the last-drawn shape within the tolerance, so with finger-sized
+ * tolerances a neighbouring coast cell would steal taps aimed at a lost-gear dot.
+ */
+function TapPicker({ gear, cells, layers, onPick }: TapProps) {
+  const map = useMapEvents({
+    click: (e) => {
+      const at = e.containerPoint
+      const dist = (lat: number, lng: number) => at.distanceTo(map.latLngToContainerPoint([lat, lng]))
+      let bestD = TAP_RADIUS
+      let best: Picked | null = null
+      const consider = (d: number, picked: Picked) => {
+        if (d <= bestD) [bestD, best] = [d, picked]
+      }
+      if (layers.beaching && cells) {
+        const polygons = map.getZoom() >= CELL_POLYGON_MIN_ZOOM
+        for (const cell of cells.features) {
+          const ring = cell.geometry.coordinates[0]
+          const [lat, lng] = ringCenter(ring)
+          const inside =
+            polygons &&
+            L.latLngBounds(ring.map(([lon, la]) => [la, lon] as [number, number])).contains(e.latlng)
+          consider(inside ? GEAR_DIRECT_HIT : dist(lat, lng), { kind: 'cell', cell })
+        }
+      }
+      if (layers.gear && gear) {
+        for (const f of gear.features) {
+          const [lng, lat] = f.geometry.coordinates
+          const d = dist(lat, lng)
+          // a direct hit on a gear dot wins over the cell it sits in
+          consider(d <= GEAR_DIRECT_HIT ? d - GEAR_DIRECT_HIT : d, { kind: 'gear', gear: f.properties })
+        }
+      }
+      onPick(best)
+    },
+  })
   return null
 }
 
@@ -84,10 +127,9 @@ interface BeachingProps {
   date: string
   zoom: number
   pickedId: string | null
-  onPick: (picked: Picked) => void
 }
 
-function BeachingLayer({ cells, breaks, date, zoom, pickedId, onPick }: BeachingProps) {
+function BeachingLayer({ cells, breaks, date, zoom, pickedId }: BeachingProps) {
   // draw ascending so the highest-value cells end up on top
   const features = [...cells.features].sort((a, b) => a.properties.expected_nets - b.properties.expected_nets)
   return features.map((f) => {
@@ -97,17 +139,15 @@ function BeachingLayer({ cells, breaks, date, zoom, pickedId, onPick }: Beaching
       weight: picked ? 3 : 1,
       fillColor: rampColor(f.properties.expected_nets, breaks),
       fillOpacity: 0.9,
-      bubblingMouseEvents: false,
     }
     const key = `${date}-${f.properties.cell_id}`
-    const eventHandlers = { click: () => onPick({ kind: 'cell', cell: f }) }
     const ring = f.geometry.coordinates[0]
     return zoom >= CELL_POLYGON_MIN_ZOOM ? (
       <Polygon
         key={key}
         positions={ring.map(([lon, lat]) => [lat, lon] as [number, number])}
         pathOptions={pathOptions}
-        eventHandlers={eventHandlers}
+        interactive={false}
       />
     ) : (
       <CircleMarker
@@ -115,7 +155,7 @@ function BeachingLayer({ cells, breaks, date, zoom, pickedId, onPick }: Beaching
         center={ringCenter(ring)}
         radius={picked ? 8 : 6}
         pathOptions={pathOptions}
-        eventHandlers={eventHandlers}
+        interactive={false}
       />
     )
   })
@@ -192,8 +232,8 @@ function FlyTo({ focus }: { focus: [number, number] | null }) {
 export default function MapView(props: Props) {
   const [w, s, e, n] = props.bbox
   const [zoom, setZoom] = useState(0)
-  // one canvas for all tappable shapes: cheaper than SVG on phones and supports a tap tolerance
-  const renderer = useMemo(() => L.canvas({ tolerance: TAP_TOLERANCE }), [])
+  // one canvas for all dots: cheaper than SVG on phones (taps are handled by TapPicker, not per shape)
+  const renderer = useMemo(() => L.canvas(), [])
   const pickedGearId = props.picked?.kind === 'gear' ? props.picked.gear.id : null
   const pickedCellId = props.picked?.kind === 'cell' ? props.picked.cell.properties.cell_id : null
   const { onPick } = props
@@ -215,7 +255,7 @@ export default function MapView(props: Props) {
       <ZoomControl position="topleft" />
       <MapReady onReady={props.onMapReady} />
       <ResizeWatcher />
-      <BlankTap onTap={() => onPick(null)} />
+      <TapPicker gear={props.gear} cells={props.cells} layers={props.layers} onPick={onPick} />
       <FlyTo focus={props.focus} />
       <ZoomWatcher onZoom={setZoom} />
       <FitToPaths paths={props.paths} selectionKey={props.selectedNets.join()} />
@@ -230,7 +270,6 @@ export default function MapView(props: Props) {
           date={props.date}
           zoom={zoom}
           pickedId={pickedCellId}
-          onPick={onPick}
         />
       )}
 
@@ -247,9 +286,8 @@ export default function MapView(props: Props) {
                 weight: selected ? 3 : 1.5,
                 fillColor: selected ? SELECTED_COLOR : GEAR_COLOR,
                 fillOpacity: 0.95,
-                bubblingMouseEvents: false,
               }}
-              eventHandlers={{ click: () => onPick({ kind: 'gear', gear: f.properties }) }}
+              interactive={false}
             />
           )
         })}

@@ -17,7 +17,7 @@ import DateBar from './components/DateBar'
 import DetailCard from './components/DetailCard'
 import Guide from './components/Guide'
 import ComingSoon from './components/ComingSoon'
-import { HelpIcon, HomeIcon, LeaderboardIcon, ProfileIcon, ReportIcon } from './components/Icons'
+import { CloseIcon, HelpIcon, HomeIcon, LeaderboardIcon, ProfileIcon, ReportIcon } from './components/Icons'
 import MapView, { type Layers, type Picked } from './components/Map'
 import SheetTabs, { type Tab } from './components/Sheet'
 
@@ -259,6 +259,23 @@ export default function App() {
             </button>
           )}
         </div>
+        {error && (
+          // a request after start-up failed (e.g. drift paths); the map keeps working, so just say so
+          <div
+            role="alert"
+            className="absolute inset-x-3 bottom-10 z-[1000] flex items-center gap-2 rounded-xl bg-red-700 py-2 pl-3 pr-1 text-sm text-white shadow-md"
+          >
+            <span className="min-w-0 flex-1">Could not load part of the forecast. Check the connection and try again.</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full active:bg-white/20"
+              aria-label="Dismiss error"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        )}
       </main>
 
       <section
