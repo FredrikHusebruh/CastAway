@@ -19,7 +19,7 @@ import Guide from './components/Guide'
 import ComingSoon from './components/ComingSoon'
 import { HelpIcon, HomeIcon, LeaderboardIcon, ProfileIcon, ReportIcon } from './components/Icons'
 import MapView, { type Layers, type Picked } from './components/Map'
-import SheetTabs from './components/Sheet'
+import SheetTabs, { type Tab } from './components/Sheet'
 
 const MAX_DRIFT_NETS = 25 // matches the API cap per /api/drift request
 const DEFAULT_WINDOW_DAYS = 7
@@ -71,6 +71,7 @@ export default function App() {
   const [focus, setFocus] = useState<[number, number] | null>(null)
   const [picked, setPicked] = useState<Picked | null>(null)
   const [expanded, setExpanded] = useState(false)
+  const [sheetTab, setSheetTab] = useState<Tab>('Hotspots')
   const [overlay, setOverlay] = useState<'guide' | Screen | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const onMapReady = useCallback((map: L.Map) => {
@@ -207,9 +208,18 @@ export default function App() {
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {index.gear_source === 'mock' && (
-            <span className="rounded-md bg-amber-400 px-2 py-1 text-xs font-bold tracking-wide text-amber-950">
+            <button
+              type="button"
+              onClick={() => {
+                setPicked(null)
+                setSheetTab('About')
+                setExpanded(true)
+              }}
+              className="rounded-md bg-amber-400 px-2 py-1 text-xs font-bold tracking-wide text-amber-950 active:opacity-80"
+              title="What does mock data mean?"
+            >
               MOCK DATA
-            </span>
+            </button>
           )}
           <button
             type="button"
@@ -297,6 +307,10 @@ export default function App() {
             onFocus={focusHotspot}
             layers={layers}
             onToggleLayer={(layer) => setLayers((l) => ({ ...l, [layer]: !l[layer] }))}
+            nSelected={selectedNets.length}
+            onClearSelection={() => setSelectedNets([])}
+            tab={sheetTab}
+            onTabChange={setSheetTab}
           />
         ) : (
           <button

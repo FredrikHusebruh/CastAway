@@ -86,6 +86,14 @@ input[type='range']::-moz-range-thumb {
   height: 1.5rem;
 }
 
+/* Thumb-sized zoom buttons (Leaflet's default is 30 px). */
+.leaflet-touch .leaflet-bar a {
+  width: 40px;
+  height: 40px;
+  line-height: 40px;
+  font-size: 22px;
+}
+
 .leaflet-control-attribution {
   font-size: 10px;
   line-height: 1.3;

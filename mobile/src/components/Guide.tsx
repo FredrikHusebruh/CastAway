@@ -31,7 +31,7 @@ const STEPS: Step[] = [
   {
     target: 'nav',
     title: 'The menu',
-    body: 'Home takes you back to the map of the whole region. Leaderboard, Rapportering (reporting gear) and Profile are coming soon. Pinch the map to zoom.',
+    body: 'Home takes you back to the map of the whole region. Leaderboard, Rapportering (reporting gear) and Profile are coming soon. Zoom with the + and − buttons on the map, or pinch.',
   },
   {
     target: 'help',

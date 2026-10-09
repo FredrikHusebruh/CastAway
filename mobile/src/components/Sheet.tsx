@@ -1,11 +1,10 @@
-import { useState } from 'react'
 import type { CellFeature, IndexInfo } from '../api'
 import { formatDateTime, formatNets, ringCenter } from '../format'
 import Legend from './Legend'
 import type { Layers } from './Map'
 
 const TABS = ['Hotspots', 'Layers', 'Legend', 'About'] as const
-type Tab = (typeof TABS)[number]
+export type Tab = (typeof TABS)[number]
 
 const LAYER_LABELS: Record<keyof Layers, string> = {
   beaching: 'Beaching forecast',
@@ -22,12 +21,15 @@ interface Props {
   onFocus: (latLng: [number, number]) => void
   layers: Layers
   onToggleLayer: (layer: keyof Layers) => void
+  nSelected: number
+  onClearSelection: () => void
+  tab: Tab
+  onTabChange: (tab: Tab) => void
 }
 
 /** The expandable part of the bottom sheet: everything the desktop sidebar shows below the date slider. */
 export default function SheetTabs(props: Props) {
-  const [tab, setTab] = useState<Tab>('Hotspots')
-  const { index } = props
+  const { index, tab } = props
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div role="tablist" className="flex gap-1 border-b border-line px-2">
@@ -37,7 +39,7 @@ export default function SheetTabs(props: Props) {
             type="button"
             role="tab"
             aria-selected={tab === t}
-            onClick={() => setTab(t)}
+            onClick={() => props.onTabChange(t)}
             className={`h-11 flex-1 border-b-2 text-sm font-medium ${
               tab === t ? 'border-accent text-ink' : 'border-transparent text-ink-3'
             }`}
@@ -93,6 +95,18 @@ export default function SheetTabs(props: Props) {
             ))}
           </ul>
         )}
+        {tab === 'Layers' &&
+          (props.nSelected > 0 ? (
+            <button
+              type="button"
+              onClick={props.onClearSelection}
+              className="mt-3 h-11 w-full rounded-xl border border-line text-sm font-medium text-ink-2 active:bg-surface-2"
+            >
+              Clear drift for {props.nSelected} item{props.nSelected === 1 ? '' : 's'}
+            </button>
+          ) : (
+            <p className="mt-3 text-xs text-ink-3">Tap a lost item or a coast cell to see where it drifts.</p>
+          ))}
 
         {tab === 'Legend' && (
           <Legend
@@ -105,6 +119,12 @@ export default function SheetTabs(props: Props) {
 
         {tab === 'About' && (
           <div className="space-y-2">
+            {index.gear_source === 'mock' && (
+              <p className="rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900">
+                <strong>Mock data:</strong> lost-gear reports are randomly generated for demonstration. Currents and
+                wind are real.
+              </p>
+            )}
             <p className="text-sm text-ink-2">
               Reports of lost, unrecovered fishing gear ({index.n_nets} items in this region) are released as{' '}
               {index.particles_per_net} virtual particles each and drifted with ocean currents and wind from MET

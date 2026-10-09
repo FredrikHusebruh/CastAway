@@ -1,6 +1,16 @@
 import L from 'leaflet'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CircleMarker, MapContainer, Polygon, Polyline, Rectangle, TileLayer, useMap, useMapEvents } from 'react-leaflet'
+import {
+  CircleMarker,
+  MapContainer,
+  Polygon,
+  Polyline,
+  Rectangle,
+  TileLayer,
+  useMap,
+  useMapEvents,
+  ZoomControl,
+} from 'react-leaflet'
 import type { CellCollection, CellFeature, DriftResponse, GearCollection, GearProps, ParticlePath } from '../api'
 import { GEAR_COLOR, RAMP, SELECTED_COLOR, STRANDED_COLOR, driftColor, rampColor, ringCenter, windageColor } from '../format'
 
@@ -195,13 +205,14 @@ export default function MapView(props: Props) {
       ]}
       className="h-full w-full"
       zoomSnap={0.5}
-      zoomControl={false} // pinch to zoom; the buttons only take space on a phone
+      zoomControl={false} // added below with a fixed position, as on desktop
       renderer={renderer}
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution={`${OSM_ATTRIBUTION} | ${props.attribution}`}
       />
+      <ZoomControl position="topleft" />
       <MapReady onReady={props.onMapReady} />
       <ResizeWatcher />
       <BlankTap onTap={() => onPick(null)} />
