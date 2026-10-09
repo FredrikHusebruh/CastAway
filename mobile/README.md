@@ -28,4 +28,4 @@ To install it like an app, use "Add to Home Screen" in Safari or Chrome. A web m
 
 `src/api.ts`, `src/format.ts`, `src/raster.ts`, `src/staticData.ts` and `components/Legend.tsx` come from `../frontend/src` (`api.ts` keeps the empty default `API_URL` for the dev proxy; `format.ts` adds a few mobile helpers at the end). Keep them in sync when the API, colour ramps or `aggregate.py` change.
 
-**Static build** (like the desktop deploy): `VITE_STATIC=true npm run build`, then copy the forecast files into `dist/data/`. The app then reads `data/*.json|geojson` instead of the API. The CI workflow does not build `mobile/` yet.
+**Static build** (this is what the website publishes): `VITE_STATIC=true npm run build`, then copy the forecast files into `dist/data/`. The app then reads `data/*.json|geojson` instead of the API. This is **the** CastAway app, used on phones and PCs; `../frontend` is a debug map. The CI workflow builds it on every push and publishes it at the site root (`castaway/`), with the forecast files in `castaway/data/`. The debug map is at `castaway/debug/`.

@@ -25,3 +25,6 @@ frontend/dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# CI build output (assembled website)
+/site/

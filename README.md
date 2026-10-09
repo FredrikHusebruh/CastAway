@@ -104,14 +104,15 @@ With the forcing cached, a full run takes about 6–7 minutes. To shorten it, lo
 The public site is **fully static**. GitHub Actions (`.github/workflows/ci-cd.yml`) does the work:
 
 ```
-push to Main / every morning ─► tests ─► run_forecast.py ─► VITE_STATIC=true npm run build + data/ ─► FTP ─► public_html/castaway/
+push to Main / every morning ─► tests + builds (mobile/ app, frontend/ debug map) ─► run_forecast.py ─► site/ (app + data/ + debug/) ─► FTP ─► public_html/castaway/
 ```
 
-- **Every push and pull request:** backend `ruff` + `pytest`, and frontend lint + build.
+- **Every push and pull request:** backend `ruff` + `pytest`, and lint + build of the app (`mobile/`) and the debug map (`frontend/`).
 - **On a push to `Main`, daily at 04:17 UTC, or "Run workflow":**
   1. Run the forecast on GitHub's computers. The NorKyst ocean data is cached between runs.
   2. Build the site with the forecast files in `data/`.
-  3. Upload it by FTP to `public_html/castaway/`, so the site is at `https://<your domain>/castaway/`.
+  3. Put the **app** (`mobile/`, used on phones and PCs) at the site root, and the **debug map** (`frontend/`) in `debug/`. The debug map reads the same `../data` files (`VITE_DATA_URL`), so they are uploaded only once.
+  4. Upload everything by FTP to `public_html/castaway/`, so the app is at `https://<your domain>/castaway/` and the debug map at `…/castaway/debug/`.
 - **The upload is a sync.** Only new or changed files are sent, and files no longer in the build are removed. The action keeps `.ftp-deploy-sync-state.json` on the server to track this.
 - **Static mode** (`VITE_STATIC=true`): the frontend reads `data/*.json|geojson` instead of the FastAPI server. The server logic that combines per-item files (paths, drift, one-item beaching) is reproduced in `frontend/src/staticData.ts`, which must match `aggregate.py`.
 - `vite.config.ts` uses `base: './'`, so the site works in the `castaway/` subfolder. `public/.htaccess` makes browsers re-check the forecast files.

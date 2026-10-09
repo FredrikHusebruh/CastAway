@@ -1,9 +1,12 @@
 # CastAway CI/CD - no server needed.
 #
-# On every push / pull request: test the backend and build the frontend.
-# On push to Main, every morning, or the "Run workflow" button: run the forecast on GitHub's computers,
-# build the static website with the forecast files inside, and upload it by FTP to Hostinger
-# (public_html/castaway/, i.e. https://<your domain>/castaway/). Only changed files are uploaded.
+# On every push / pull request: test the backend, and lint + build the app (mobile/) and the debug map (frontend/).
+# On push to Main, every morning, or the "Run workflow" button: run the forecast on GitHub's computers, put the
+# website together and upload it by FTP to Hostinger (public_html/castaway/, i.e. https://<your domain>/castaway/):
+#   castaway/        the app (mobile/), used on phones and PCs
+#   castaway/data/   the forecast files
+#   castaway/debug/  the debug map (frontend/), reading ../data; left out (with a warning) if it fails to build
+# Only changed files are uploaded.
 #
 # Settings (GitHub repo -> Settings -> Secrets and variables -> Actions):
 #   Secrets   FTP_SERVER, FTP_USERNAME, FTP_PASSWORD   Hostinger FTP account (hPanel -> Files -> FTP Accounts)
@@ -42,8 +45,35 @@ jobs:
       - run: ruff check .
       - run: pytest -q
 
+  # The app. Its static build doesn't depend on the forecast data, so the publish job reuses this build.
+  mobile:
+    name: App (mobile/) lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+        env:
+          VITE_STATIC: "true"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-dist
+          path: mobile/dist
+          include-hidden-files: true # .htaccess
+          retention-days: 3
+
+  # The debug map, built to read the app's data folder from castaway/debug/.
   frontend:
-    name: Frontend lint and build
+    name: Debug map (frontend/) lint and build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -60,13 +90,23 @@ jobs:
       - run: npm run build
         env:
           VITE_STATIC: "true"
+          VITE_DATA_URL: ../data
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debug-dist
+          path: frontend/dist
+          include-hidden-files: true
+          retention-days: 3
 
   publish:
     name: Forecast and publish
-    needs: [backend, frontend]
+    # Waits for the debug map too, but only the backend tests and the app have to pass:
+    # a broken debug tool must never stop the real app's daily forecast.
+    needs: [backend, mobile, frontend]
     if: >-
-      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/Main')
+      always() && needs.backend.result == 'success' && needs.mobile.result == 'success' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/Main'))
     runs-on: ubuntu-latest
     timeout-minutes: 150
     concurrency:
@@ -109,24 +149,29 @@ jobs:
             python scripts/run_forecast.py
           fi
 
-      - uses: actions/setup-node@v4
+      # Put the website together in site/ from the builds above plus the forecast files.
+      - name: Get the app build
+        uses: actions/download-artifact@v4
         with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Build static site with the forecast files
-        working-directory: frontend
-        env:
-          VITE_STATIC: "true"
+          name: app-dist
+          path: site
+      - name: Get the debug map build
+        if: needs.frontend.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: debug-dist
+          path: site/debug
+      - name: Add the forecast files
         run: |
-          npm ci
-          npm run build
-          mkdir -p dist/data
-          # files the map reads; runs/ (raw simulation output) and tracks/ (API-only) are not published
-          rsync -a --exclude 'runs/' --exclude 'tracks/' --exclude '*.png' ../backend/data/output/ dist/data/
-          du -sh dist dist/data
+          if [ "${{ needs.frontend.result }}" != "success" ]; then
+            echo "::warning::The debug map (frontend/) failed to build, so castaway/debug/ is left out of this deploy."
+          fi
+          mkdir -p site/data
+          # files the app reads; runs/ (raw simulation output) and tracks/ (API-only) are not published
+          rsync -a --exclude 'runs/' --exclude 'tracks/' --exclude '*.png' backend/data/output/ site/data/
+          du -sh site site/data
 
-      # Syncs dist/ to the server: uploads new/changed files and deletes files that are no longer in the build
+      # Syncs site/ to the server: uploads new/changed files and deletes files that are no longer in the build
       # (it keeps a .ftp-deploy-sync-state.json on the server to know what is there).
       - name: Upload to Hostinger (FTP)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -134,5 +179,5 @@ jobs:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: frontend/dist/
+          local-dir: site/
           server-dir: public_html/castaway/

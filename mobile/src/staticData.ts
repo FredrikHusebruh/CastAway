@@ -1,12 +1,14 @@
-// Static mode (VITE_STATIC=true): the site reads the pipeline's output files from ./data/ next to index.html,
-// so it runs on plain web hosting with no Python server. The endpoints that combine per-item files are
-// reproduced here; keep them in sync with backend/castaway/aggregate.py and api.py:
+// Static mode (VITE_STATIC=true): the site reads the pipeline's output files from ./data/ next to index.html
+// (or from VITE_DATA_URL), so it runs on plain web hosting with no Python server. The endpoints that combine
+// per-item files are reproduced here; keep them in sync with backend/castaway/aggregate.py and api.py:
 //   trimPaths      <-> aggregate.trim_paths   (+ api.paths thinning)
 //   combineDrift   <-> aggregate.combine_drift
 //   itemBeaching   <-> aggregate.item_window_cells + cells_geojson (api.net_beaching)
 import type { CellCollection, CellFeature, DriftResponse, IndexInfo, ItemBeaching, ParticlePath } from './api'
 
-const DATA_URL = `${import.meta.env.BASE_URL}data`
+// Where the forecast files are. Default ./data next to index.html (the app at castaway/); the debug map is built
+// with VITE_DATA_URL=../data so that from castaway/debug/ it reads the same castaway/data/. No trailing slash.
+const DATA_URL: string = (import.meta.env.VITE_DATA_URL ?? `${import.meta.env.BASE_URL}data`).replace(/\/+$/, '')
 const MAX_NETS = 25 // config.MAX_DRIFT_NETS
 const KM_PER_DEG_LAT = 111.32
 const DAY_MS = 86_400_000
@@ -14,7 +16,7 @@ const DAY_MS = 86_400_000
 export async function getStatic<T>(file: string): Promise<T> {
   // no-cache: file names repeat across daily builds, so always revalidate
   const res = await fetch(`${DATA_URL}/${file}`, { cache: 'no-cache' })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for data/${file}`)
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${DATA_URL}/${file}`)
   return (await res.json()) as T
 }
 
@@ -24,7 +26,7 @@ async function getOptional<T>(file: string): Promise<T | null> {
     try {
       const res = await fetch(`${DATA_URL}/${file}`, { cache: 'no-cache' })
       if (res.status === 404) return null
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText} for data/${file}`)
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${DATA_URL}/${file}`)
       return (await res.json()) as T
     } catch (e) {
       if (attempt >= 1) throw e

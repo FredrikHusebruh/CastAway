@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 CastAway is a hackathon prototype (favour a working result over completeness). It forecasts where lost fishing gear will wash ashore on the Norwegian coast:
 
 ```
-barentswatch.py ──> forcing.py ──> simulate.py ──> aggregate.py ──> data/output/*.geojson ──> api.py ──> frontend (React map)
+barentswatch.py ──> forcing.py ──> simulate.py ──> aggregate.py ──> data/output/*.geojson ──> api.py ──> mobile/ (the app)
+                                                                                                  └──> frontend/ (debug map)
  lost-gear table    NorKyst subset   OpenDrift runs   strandings→cells   index.json, tracks/     FastAPI     date slider
 ```
 
@@ -20,7 +21,8 @@ The Python env is a uv venv at `backend/.venv` (Python 3.11, OpenDrift from PyPI
 ```bash
 # one-time setup
 cd backend && uv venv .venv --python 3.11 && uv pip install --python .venv/Scripts/python.exe -r requirements.txt
-cd frontend && npm install
+cd mobile && npm install          # the app
+cd frontend && npm install        # the debug map
 
 # pipeline (from backend/)
 PY=.venv/Scripts/python.exe
@@ -37,7 +39,8 @@ $PY -m ruff check .
 
 # serve
 $PY -m uvicorn castaway.api:app --reload --port 8000     # from backend/
-npm run dev | npm run build | npm run lint                # from frontend/ (Vite on :5173; lint = oxlint)
+npm run dev | npm run build | npm run lint                # from mobile/: the app (Vite on :5174, proxies /api; lint = oxlint)
+npm run dev | npm run build | npm run lint                # from frontend/: the debug map (Vite on :5173)
 ```
 
 **Runtime expectations:**
@@ -46,9 +49,14 @@ npm run dev | npm run build | npm run lint                # from frontend/ (Vite
 - Simulation results go to `data/output/runs/<mock|real>_<region>_<forecast hour>_<gear fingerprint>/` with a `manifest.json`. Reruns with identical input skip nets already simulated; changed input (mock ids repeat!) gets a fresh folder.
 
 **Deployment (static, no server):**
-- `.github/workflows/ci-cd.yml` runs the tests on every push. On `Main`, daily, or a manual run, it runs the forecast, builds with `VITE_STATIC=true`, copies `backend/data/output/` (minus `runs/` and `tracks/`) to `dist/data/`, and uploads `frontend/dist/` by FTP (SamKirkland/FTP-Deploy-Action) to `public_html/castaway/`. The secrets are `FTP_SERVER`, `FTP_USERNAME` and `FTP_PASSWORD`, and the workflow only needs `contents: read`.
-- `frontend/src/staticData.ts` reproduces `/api/paths`, `/api/drift` and `/api/net/{id}/beaching` from the files. Whenever `aggregate.trim_paths`, `combine_drift`, `item_window_cells` or the API thinning change, change it too.
-- `mobile/` (the phone UI) keeps copies of `staticData.ts`, `raster.ts`, `api.ts`, `format.ts` and `Legend.tsx` in `mobile/src/`. When you change one of those in `frontend/src/`, make the same change in the mobile copy.
+- **`mobile/` is THE app**, for phones and PCs alike. New user-facing features go here. **`frontend/` is a debug tool**; only add features to it if they help debugging.
+- `.github/workflows/ci-cd.yml`:
+  - On every push it runs the backend tests and lints and builds both apps (`VITE_STATIC=true`; the debug map with `VITE_DATA_URL=../data`), saving both builds as artifacts.
+  - On `Main`, daily, or a manual run, the `publish` job runs the forecast and assembles `site/`: the app build at the root, `backend/data/output/` minus `runs/` and `tracks/` in `site/data/`, and the debug-map build in `site/debug/`. It then uploads `site/` by FTP (SamKirkland/FTP-Deploy-Action) to `public_html/castaway/`.
+  - `publish` only requires the backend tests and the app. If the debug map fails, it is left out with a warning and never blocks the real app's deploy.
+  - The secrets are `FTP_SERVER`, `FTP_USERNAME` and `FTP_PASSWORD`, and the workflow only needs `contents: read`.
+- `staticData.ts` reproduces `/api/paths`, `/api/drift` and `/api/net/{id}/beaching` from the files. Whenever `aggregate.trim_paths`, `combine_drift`, `item_window_cells` or the API thinning change, change it too.
+- **Shared copies:** `mobile/src/` keeps copies of `staticData.ts`, `raster.ts`, `api.ts`, `format.ts` and `components/Legend.tsx` from `frontend/src/`. When you change one, make the same change in the other; `format.ts` has extra mobile helpers at the end, and the mobile `api.ts` keeps an empty default `API_URL` for the dev proxy.
 - Check parity by running `staticData.ts` in Node against the static files and comparing with the API (0 mismatches as of 2026-10-09).
 
 ## Rules
@@ -93,7 +101,8 @@ npm run dev | npm run build | npm run lint                # from frontend/ (Vite
   - A coast-cell popup keeps regional mode.
 - **Spin-up:** most nets are seeded together at the window start, so strandings in the first `SPINUP_HOURS` are seeding artefacts. `aggregate.write_outputs` drops them, and the dates start at `Window.first_day`.
 - **Code style:** small typed functions. Python 3.11 and ruff on the backend; TypeScript strict and Tailwind on the frontend.
-- **Out of scope:** accounts, gamification, found-net reporting, notifications and deployment. Leave stubs at the marked extension points (e.g. a `found_reports` layer), but don't build them.
+- **Out of scope:** accounts, gamification, found-net reporting and notifications. Leave stubs at the marked extension points (e.g. a `found_reports` layer, and the mobile app's "coming soon" tabs), but don't build them.
+- **Deployment is in scope** (since 2026-10-09, at the user's request), as the static FTP pipeline described above. Keep it simple, and don't add servers.
 
 ## Data sources and quirks (verified 2026-10-08)
 
