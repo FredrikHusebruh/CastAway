@@ -57,7 +57,7 @@ Useful flags:
 
 ### Mock data for demos
 
-The real reports in the default region are mostly old: the median is about 200 days. Old items are all released at the start of the hindcast window. To demo time-aware drift, generate synthetic reports instead:
+Real reports are sparse in the default Kristiansand region: 3 in the last year. In East Finnmark they are plentiful but mostly old, with a median age of about 200 days. Old items are all released at the start of the hindcast window. To demo time-aware drift, generate synthetic reports instead:
 
 ```bash
 .venv/Scripts/python.exe scripts/make_mock_gear.py --n 60 --seed 42   # -> data/raw/mock_gear.csv
@@ -71,7 +71,7 @@ How the mock reports are generated:
 
 Currents and wind stay real. The map shows a **MOCK DATA** badge (`index.json` `gear_source: "mock"`).
 
-Mock runs are simulated in their own `runs/mock_<hour>/` directory, but they write the same `data/output/` files as real runs. Run `run_forecast.py` without `--mock` to switch back.
+Each simulation run gets its own folder, `runs/<mock|real>_<region>_<hour>_<gear fingerprint>/`. Changed mock data or a different region therefore never reuses an old simulation. All runs write the same `data/output/` files, though. Run `run_forecast.py` without `--mock` to switch back, and refresh the browser after a run; the API sends `Cache-Control: no-cache`, so the map always revalidates.
 
 Other helper scripts:
 - `scripts/fetch_gear.py`: inspect the lost-gear data and per-region counts.
@@ -82,11 +82,12 @@ Other helper scripts:
 | `GET /api/dates` | available dates + run metadata (`index.json`) |
 | `GET /api/gear` | lost gear points (GeoJSON) |
 | `GET /api/beaching?date=YYYY-MM-DD` | coast cells for the 7 days up to that date: `expected_nets`, `particle_count`, `n_nets`, `contributing_net_ids` |
-| `GET /api/paths?ids=a,b&date=YYYY-MM-DD` | individual particle trajectories (a sample of 40 per item, fewer when many are selected) up to that date, with windage and whether each had stranded |
+| `GET /api/paths?ids=a,b&date=YYYY-MM-DD` | individual particle trajectories (a sample of 24 per item at 15-min resolution; fewer and coarser when many are selected) up to that date, with windage and whether each had stranded |
 | `GET /api/drift?ids=a,b&date=YYYY-MM-DD` | drift-likelihood heat map for up to 25 items up to that date: `cells` = `[lat, lon, relative likelihood 0–1]` on a 2 km grid |
+| `GET /api/net/{id}/beaching?date=YYYY-MM-DD` | where ONE item is likely to wash ashore in the 7 days up to that date: cells with its total chance (float probability included) plus `chance_total` |
 | `GET /api/net/{id}/track?date=YYYY-MM-DD` | hourly particle-centroid track of one net, up to that date |
 
-**Runtime** (default region, 111 items × 200 particles, Windows laptop):
+**Runtime** (measured on East Finnmark, 111 items × 200 particles, Windows laptop):
 
 | Stage | Time |
 |---|---|
@@ -98,13 +99,46 @@ Other helper scripts:
 
 With the forcing cached, a full run takes about 6–7 minutes. To shorten it, lower `CASTAWAY_PARTICLES_PER_NET` or `CASTAWAY_HINDCAST_DAYS`.
 
+## Deployment (static website on Hostinger, no server)
+
+The public site is **fully static**. GitHub Actions (`.github/workflows/ci-cd.yml`) does the work:
+
+```
+push to Main / every morning ─► tests ─► run_forecast.py ─► VITE_STATIC=true npm run build + data/ ─► `deploy` branch ─► Hostinger Git ─► public_html/
+```
+
+- **Every push and pull request:** backend `ruff` + `pytest`, and frontend lint + build.
+- **On a push to `Main`, daily at 04:17 UTC, or "Run workflow":**
+  1. Run the forecast on GitHub's computers. The NorKyst ocean data is cached between runs.
+  2. Build the site with the forecast files in `data/`.
+  3. Push the result to the `deploy` branch, which Hostinger copies into `public_html/`.
+- **Static mode** (`VITE_STATIC=true`): the frontend reads `data/*.json|geojson` instead of the FastAPI server. The server logic that combines per-item files (paths, drift, one-item beaching) is reproduced in `frontend/src/staticData.ts`, which must match `aggregate.py`.
+- `vite.config.ts` uses `base: './'`, so the site works on any domain or subfolder. `public/.htaccess` makes browsers re-check the forecast files on Hostinger.
+
+**One-time setup:**
+1. **Push to `Main`.** The first successful run creates the `deploy` branch. Watch it under the repo's **Actions** tab.
+2. **Hostinger:** hPanel → your website → **Advanced → Git**.
+   - Repository: `https://github.com/FredrikHusebruh/CastAway.git`
+   - Branch: `deploy`
+   - Directory: empty, which means `public_html`
+   - Then **Deploy**, turn on **Auto Deployment**, and copy its webhook URL.
+3. **GitHub webhook:** repo → **Settings → Webhooks → Add webhook**. Paste the URL, set content type `application/json`, and choose "Just the push event".
+4. **Optional settings** (repo → Settings → Secrets and variables → Actions):
+   - Secrets: `BW_CLIENT_ID`, `BW_CLIENT_SECRET` (BarentsWatch).
+   - Variables:
+     - `CASTAWAY_REGION`: default `finnmark_east`, e.g. `kristiansand`.
+     - `CASTAWAY_MOCK=true`: demo data, with a MOCK DATA badge.
+     - `CASTAWAY_HINDCAST_DAYS`: default 7.
+
+**Size:** with 7 hindcast days the site is about 20–30 MB. With 30 days it's about 90 MB, mostly the particle paths. The FastAPI server (`api.py`) is still used for local development (`npm run dev`).
+
 ## Configuration
 
 Everything lives in `backend/castaway/config.py`. Most settings can be overridden with environment variables or `backend/.env`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `CASTAWAY_REGION` | `finnmark_east` | Region preset (`finnmark_east`, `vestland`, `lofoten`) |
+| `CASTAWAY_REGION` | `kristiansand` | Region preset (`kristiansand`, `finnmark_east`, `vestland`, `lofoten`) |
 | `CASTAWAY_PARTICLES_PER_NET` | 200 | Particles per lost item |
 | `CASTAWAY_SEED_RADIUS_M` | 500 | Seeding radius around the reported position |
 | `WIND_DRIFT_FACTORS` | 0, 0.01, 0.02, 0.03 | Windage ensemble; each net's particles are split evenly across these |
@@ -122,7 +156,11 @@ Everything lives in `backend/castaway/config.py`. Most settings can be overridde
 
 ### Default region
 
-The default is **East Finnmark** (lon 25.0–31.5°E, lat 69.6–71.3°N). The real data put it there: most recent lost-gear reports are in Finnmark (the king-crab fishery), while Vestland and Lofoten have only a handful.
+The default test area is **Kristiansand**: the Agder coast from Mandal to Grimstad plus the Skagerrak to the south (lon 7.0–8.9°E, lat 57.75–58.45°N).
+- Real lost-gear reports there are rare (3 in the last year, all crab pots), so use it with mock data (`--mock`).
+- For real data, use `--region finnmark_east` (lon 25.0–31.5°E, lat 69.6–71.3°N). It holds most of the recent reports, mainly from the king-crab fishery.
+
+Each region downloads and caches its own ocean data the first time it runs.
 
 ## How the forecast is computed
 
@@ -131,19 +169,23 @@ The default is **East Finnmark** (lon 25.0–31.5°E, lat 69.6–71.3°N). The r
 3. **Drift.** OpenDrift `OceanDrift` with `coastline_action = stranding`:
    - Each item gets `PARTICLES_PER_NET` particles within `SEED_RADIUS_M` of its position, split across the wind-drift factors.
    - Particles are seeded at `max(lost_time, now − HINDCAST_DAYS)` and run to `now + FORECAST_DAYS`.
-   - Time step 15 min, output every hour, horizontal diffusivity 10 m²/s.
+   - Time step 15 min, output every 15 min (so drawn paths follow the water rather than cutting across land), horizontal diffusivity 10 m²/s.
 4. **Beaching.** Each stranded particle contributes `float_prob(gear) / particles_per_net` expected nets to its ~1 km cell. For a selected date, a cell's `expected_nets` is the sum over strandings in the **7 UTC days up to and including that date** (`BEACHING_WINDOW_DAYS`).
-5. **Drift paths.** Selecting an item, or a coast cell, draws a sample of its particles' own trajectories up to the selected date, like OpenDrift's spaghetti plots.
-   - Lines are coloured by windage (0–3%, how hard the wind pushes the net), light to dark violet. That ensemble is the main source of spread.
-   - An orange dot marks where a particle washed ashore.
+5. **One item.** Clicking a lost item → "Show where it washes ashore" replaces the regional map with that item's own chance of washing ashore in each ~1 km cell (7 days to the selected date, float probability included). The sidebar shows its total chance and its most likely spots in %, and "Show all items" returns to the regional map.
+6. **Drift paths.** Selecting an item, or a coast cell, draws a sample of its particles' own trajectories up to the selected date, like OpenDrift's spaghetti plots.
+   - Lines are coloured by windage (0–3%, how hard the wind pushes the net) on the viridis scale, purple (0%) to yellow (3%). That ensemble is the main source of spread.
+   - A small red square (100 m) marks where a particle washed ashore.
    - The map zooms to the paths when the selection changes.
-6. **Drift likelihood (optional heat map layer).**
+   - All paths are drawn on a single canvas (one batch per colour, points under 1 px apart skipped), so many selected items stay smooth.
+7. **Drift likelihood (optional heat map layer).**
    - For each item, the particle positions are counted per hour on a 2 km grid. The result shows where the item is likely to have been at any moment up to the selected date.
    - When several items are selected (e.g. all items behind one coast cell), each item's distribution is weighted by its float probability and the distributions are summed.
-   - The map shows this relative likelihood as a single-hue violet heat map.
-7. **Map.**
-   - Cells are coloured on a single-hue orange scale with log-spaced class breaks, because the values are very skewed.
-   - When zoomed out, cells are drawn as dots so they stay visible; from zoom 11 they are drawn as true 1 km squares.
+   - The map shows this relative likelihood as a viridis heat map, dark purple (less likely) to yellow (more likely).
+8. **Map.**
+   - Cells are coloured with viridis (dark purple → yellow) on a log scale from the class breaks, because the values are very skewed.
+   - The 1 km cell values are bilinearly interpolated into a smooth raster, then Gaussian-smoothed. The smoothing radius in cells is `BEACHING_SMOOTH_CELLS` / `DRIFT_SMOOTH_CELLS` in `frontend/src/components/Map.tsx`; higher is softer, 0 is plain bilinear. Opacity rises with value, so low-value coast fades out and hotspots stand out. Clicking the map opens the nearest cell's popup.
+   - The drift heat map (2 km cells, viridis) is interpolated the same way.
+   - Stranded particles on the drift paths are 100 m squares, one per spot.
 
 ## Known limitations and shortcuts
 
@@ -153,7 +195,8 @@ The default is **East Finnmark** (lon 25.0–31.5°E, lat 69.6–71.3°N). The r
 - **Hindcast cap.** Items lost before `now − HINDCAST_DAYS` are seeded at their *reported* position at the start of the window. This assumes they stayed near where they were lost. Downloading more history is slow (see Runtime).
 - **Spin-up.** Because those items are all released at once at their (often near-shore) positions, about 60% of all strandings happen in the first 24 h. That is an artefact of seeding, not a real arrival peak, so strandings in the first `SPINUP_HOURS` are discarded and the date slider starts on the first full day after spin-up.
 - **Anonymised data (no credentials).** The public OLEX download has no "removed" flag, so it may include gear that has since been recovered. Records without a `ToolId` get a synthetic id, and lines are seeded at their centroid.
-- **The authenticated `notremoved` parser** is written from the OpenAPI schema. Re-check it against a real response (`scripts/fetch_gear.py --inspect`) once credentials exist.
+- **The authenticated `notremoved` source** was verified against a real response on 2026-10-09: 1,502 records, GeoJSON Point/LineString geometry and local-time `lostTime`. It is used automatically whenever `backend/.env` has credentials.
+- **Coastline.** OpenDrift strands particles on the global GSHHG coastline (about 100 m detail). In narrow fjords it can sit 100–200 m off the OpenStreetMap coastline, so stranding points can appear slightly inland on the map.
 - **Wind.** NorKyst's own atmospheric forcing (MEPS-derived) is used for both hindcast and forecast, fetched at a 3-hourly stride to keep downloads manageable. MEPS 2.5 km wind is optional.
 - **Coast cells** are a regular lon/lat grid; only cells that receive strandings are shown, so they follow the coastline. The coastline is OpenDrift's GSHHG landmask, which misses small skerries and fine fjord detail.
 - **Days are UTC days.**

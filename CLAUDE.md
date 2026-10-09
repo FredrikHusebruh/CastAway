@@ -26,7 +26,7 @@ cd frontend && npm install
 PY=.venv/Scripts/python.exe
 $PY scripts/fetch_gear.py                 # fetch + inspect lost gear, per-region counts
 $PY scripts/plot_one_net.py               # single-net sanity run -> data/output/one_net.png
-$PY scripts/run_forecast.py [--region finnmark_east] [--max-nets N] [--force] [--refetch] [--mock]
+$PY scripts/run_forecast.py [--region kristiansand|finnmark_east|vestland|lofoten] [--max-nets N] [--force] [--refetch] [--mock]
 $PY scripts/make_mock_gear.py [--n 60] [--days N] [--seed 42]      # synthetic gear -> data/raw/mock_gear.csv (use with --mock)
 CASTAWAY_NOW=2026-10-08T21:00:00Z $PY scripts/run_forecast.py   # pin "now" to reuse an existing run dir (re-aggregate only)
 
@@ -43,7 +43,12 @@ npm run dev | npm run build | npm run lint                # from frontend/ (Vite
 **Runtime expectations:**
 - The first pipeline run downloads about 110 s of NorKyst forcing per day. The default window is 7 hindcast + 3 forecast days, so roughly 20 minutes.
 - The forcing is cached per day in `data/raw/forcing/`, so later runs only fetch new or stale forecast days.
-- Simulation results go to `data/output/runs/<forecast_start>/` with a `manifest.json`, so reruns skip nets already simulated.
+- Simulation results go to `data/output/runs/<mock|real>_<region>_<forecast hour>_<gear fingerprint>/` with a `manifest.json`. Reruns with identical input skip nets already simulated; changed input (mock ids repeat!) gets a fresh folder.
+
+**Deployment (static, no server):**
+- `.github/workflows/ci-cd.yml` runs the tests on every push. On `Main`, daily, or a manual run, it runs the forecast, builds with `VITE_STATIC=true`, copies `backend/data/output/` (minus `runs/` and `tracks/`) to `dist/data/`, and pushes to the `deploy` branch. Hostinger's Git deployment pulls that branch into `public_html`.
+- `frontend/src/staticData.ts` reproduces `/api/paths`, `/api/drift` and `/api/net/{id}/beaching` from the files. Whenever `aggregate.trim_paths`, `combine_drift`, `item_window_cells` or the API thinning change, change it too.
+- Check parity by running `staticData.ts` in Node against the static files and comparing with the API (0 mismatches as of 2026-10-09).
 
 ## Rules
 
@@ -65,16 +70,24 @@ npm run dev | npm run build | npm run lint                # from frontend/ (Vite
 - **Attribution "Data: BarentsWatch, MET Norway. Drift model: OpenDrift." must stay visible on the map.** OpenDrift is GPL v2 and only runs server-side. Don't bundle it into the frontend.
 - **Times:** use aware UTC datetimes throughout the codebase. OpenDrift wants naive UTC, so convert with `simulate.naive_utc()` at that boundary only. OpenDrift's own log timestamps are UTC; the other logs use local time.
 - **Map colours:**
-  - The beaching layer uses a single-hue orange ramp (`frontend/src/format.ts` and `index.css`), validated as an ordinal ramp against the OSM basemap. Don't switch to blue, which disappears against the sea.
+  - The beaching layer uses **viridis** (user's choice, dark purple → yellow) with opacity that increases with value (`RAMP`/`RAMP_OPACITY` in `format.ts`, mirrored in `index.css`). It is drawn as a smooth raster: `raster.ts` `buildRaster` interpolates cell values bilinearly, Gaussian-smooths them (`*_SMOOTH_CELLS` in `Map.tsx`, rescaled to keep the peak value), maps rows to Mercator, then colours them. The user rejected numbered hotspot badges, so don't add them back.
+  - The goal is that hotspots stand out; the user found evenly weighted cells useless. Don't switch to blue, which disappears against the sea.
   - Class breaks come from `index.json` `color_breaks`. They are log-spaced, because quantiles collapse onto the per-gear single-particle weights.
 - **Mock data:**
   - `castaway/mock_gear.py` produces the real gear schema, and `index.json` `gear_source: "mock"` triggers the MOCK DATA badge in the UI. Never remove that badge.
-  - Mock runs live in `runs/mock_<hour>/` but overwrite the same `data/output/` files.
+  - Mock and real runs overwrite the same `data/output/` files. Output names repeat across runs, so the API sets `Cache-Control: no-cache` on `/api/*` and the frontend fetches with `cache: 'no-cache'`. Keep both, or stale data from a previous run shows up in the browser.
 - **Map semantics:**
   - A beaching date means strandings in the `BEACHING_WINDOW_DAYS` (7) days up to and including it, not just that day. `index.json` `expected_nets_per_date` holds those 7-day totals.
-  - The default drift view is particle paths from `paths/<id>.json`: `PATH_PARTICLES_PER_FACTOR` particles per windage, hourly. `/api/paths` trims them to the date and thins them when many nets are selected. Paths are coloured by windage (ordinal violet).
+  - The default drift view is particle paths from `paths/<id>.json`: `PATH_PARTICLES_PER_FACTOR` particles per windage, every output step (15 min; `step_minutes` is stored in each file). `/api/paths` trims them to the date and thins them when many nets are selected. Paths are coloured by windage (viridis).
   - The optional heat map from `drift/<id>.json`. Those files hold per-day particle-hour counts on a `DRIFT_CELL_KM` grid. `aggregate.combine_drift` (used by `/api/drift`) turns them into relative likelihood.
-  - The violet drift ramp (`format.ts` `DRIFT_RAMP`) was validated against the OSM sea colour.
+  - The drift heat map and the particle paths use **viridis** (`format.ts` `VIRIDIS`/`WINDAGE_RAMP`), at the user's request.
+  - Beaching and drift likelihood are interpolated rasters (`ImageOverlay`), not per-cell shapes. Clicks on the beaching layer are resolved to the nearest cell in `BeachingLayer`, and gear markers set `bubblingMouseEvents={false}`.
+  - Stranded-particle markers are 100 m squares at true size, de-duplicated per spot. Never draw them as circles.
+  - Particle paths and stranding squares are drawn by `PathsCanvas` on a single canvas, batched per colour, with pixel thinning, redrawn on `moveend`/`zoomend`. Don't go back to one Leaflet `Polyline` per particle; that made the map laggy.
+- **Item focus:**
+  - Clicking a lost item (`onShowItem`) sets `itemId` in `App.tsx`. The beaching layer then shows `/api/net/{id}/beaching` instead of the regional file: the same cell format, where `expected_nets` is that item's total chance.
+  - The data comes from `output/strandings/<id>.json`, written by `aggregate.item_strandings` from the spin-up-filtered strandings. So an item's map is exactly its share of the regional map.
+  - A coast-cell popup keeps regional mode.
 - **Spin-up:** most nets are seeded together at the window start, so strandings in the first `SPINUP_HOURS` are seeding artefacts. `aggregate.write_outputs` drops them, and the dates start at `Window.first_day`.
 - **Code style:** small typed functions. Python 3.11 and ruff on the backend; TypeScript strict and Tailwind on the frontend.
 - **Out of scope:** accounts, gamification, found-net reporting, notifications and deployment. Leave stubs at the marked extension points (e.g. a `found_reports` layer), but don't build them.
@@ -83,7 +96,8 @@ npm run dev | npm run build | npm run lint                # from frontend/ (Vite
 
 - **Lost gear:**
   - With credentials: OAuth client-credentials → `GET /bwapi/v1/lostfishingfacility/notremoved`. Fields per the OpenAPI spec: `lostMessageId, toolTypeCode, lostTime, geometry`.
-  - Without credentials (the current default): the public `GET /bwapi/v1/geodata/download/anonymouslostfishingfacility?format=OLEX`. It is gzip'd OLEX text:
+  - The user has credentials in `backend/.env` (since 2026-10-09), so `notremoved` is the active real source. Its records are GeoJSON Point/LineString, `toolTypeCode` values look like `CRABPOT`/`NETS`, and `lostTime` is local time with an offset.
+  - Without credentials, the fallback is the public `GET /bwapi/v1/geodata/download/anonymouslostfishingfacility?format=OLEX`. It is gzip'd OLEX text:
     - Blocks start with `Rute`.
     - Point lines read `lat_minutes lon_minutes unix_epoch label`; divide by 60 for degrees.
     - The gear is in `MTekst 1: Redskapstype: <gear>`.
@@ -98,4 +112,7 @@ npm run dev | npm run build | npm run lint                # from frontend/ (Vite
 - **OpenDrift 1.14 API:**
   - Diffusivity is set with `environment:constant:horizontal_diffusivity`.
   - Stranded particles are found from the `status` variable's `flag_meanings` at each trajectory's last valid output step.
-- **Default region:** `finnmark_east`, because that's where most recent reports are. Vestland and Lofoten have very few.
+- **Default region:** `kristiansand` (the Agder coast), the user's chosen test area.
+  - It has only about 3 real reports a year, so it's used with mock data.
+  - `finnmark_east` has the most real reports (about 111 within a year).
+  - Forcing is cached per region (`norkyst_*_<region>_<day>.nc`).

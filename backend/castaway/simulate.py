@@ -55,10 +55,21 @@ def make_readers(forcing: ForcingFiles) -> Readers:
     return Readers(currents=currents, wind=wind, extra=extra)
 
 
-def run_dir_for(forecast_start: datetime, source: str = "") -> Path:
-    """One run directory per forecast hour; mock runs are kept apart from real ones."""
-    prefix = "mock_" if source == "mock" else ""
-    return config.RUNS_DIR / f"{prefix}{forecast_start:%Y%m%dT%H}"
+def gear_fingerprint(gear: pd.DataFrame) -> str:
+    """Short hash of the simulated input (ids, positions, loss times, gear types).
+
+    Mock ids repeat across regenerations (mock-0000, ...), so ids alone cannot tell old and new input apart.
+    """
+    cols = ["id", "lon", "lat", "lost_time", "gear_type"]
+    rows = gear[cols].sort_values("id").astype(str).agg("|".join, axis=1)
+    return hashlib.sha1(";".join(rows).encode()).hexdigest()[:8]
+
+
+def run_dir_for(forecast_start: datetime, gear: pd.DataFrame, region: str) -> Path:
+    """One run directory per (source, region, forecast hour, gear input), so changed input never reuses old runs."""
+    source = gear.attrs.get("source", "real")
+    prefix = "mock" if source == "mock" else "real"
+    return config.RUNS_DIR / f"{prefix}_{region}_{forecast_start:%Y%m%dT%H}_{gear_fingerprint(gear)}"
 
 
 def naive_utc(t: datetime) -> datetime:
@@ -157,9 +168,11 @@ def _save_manifest(out_dir: Path, manifest: dict[str, str]) -> None:
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
 
 
-def simulate_all(gear: pd.DataFrame, readers: Readers, window: config.Window, force: bool = False) -> Path:
-    """Simulate every net not yet in this forecast's manifest. Returns the run directory."""
-    out_dir = run_dir_for(window.forecast_start, gear.attrs.get("source", ""))
+def simulate_all(
+    gear: pd.DataFrame, readers: Readers, window: config.Window, region: str, force: bool = False
+) -> Path:
+    """Simulate every net not yet in this run's manifest. Returns the run directory."""
+    out_dir = run_dir_for(window.forecast_start, gear, region)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = {} if force else _load_manifest(out_dir)
     todo = gear[~gear["id"].isin(manifest)]

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatDate, formatNets } from '../format'
+import { formatDate, formatNets, formatPercent } from '../format'
 
 interface Props {
   dates: string[]
@@ -7,6 +7,7 @@ interface Props {
   today: string // YYYY-MM-DD of the forecast start; earlier dates are hindcast, later ones forecast
   totals: Record<string, number>
   windowDays: number
+  itemChance?: number | null // item focus: show this item's chance instead of the regional total
   onChange: (date: string) => void
 }
 
@@ -18,7 +19,7 @@ const PHASES = {
   forecast: { label: 'Forecast', className: 'bg-accent text-white' },
 }
 
-export default function DateSlider({ dates, value, today, totals, windowDays, onChange }: Props) {
+export default function DateSlider({ dates, value, today, totals, windowDays, itemChance, onChange }: Props) {
   const [playing, setPlaying] = useState(false)
   const i = Math.max(dates.indexOf(value), 0)
   const phase = PHASES[value < today ? 'hindcast' : value === today ? 'today' : 'forecast']
@@ -66,8 +67,17 @@ export default function DateSlider({ dates, value, today, totals, windowDays, on
           </button>
         </div>
         <div className="text-sm text-ink-2">
-          <span className="font-semibold text-ink">{formatNets(totals[value] ?? 0)}</span> nets ashore in{' '}
-          {windowDays} days
+          {itemChance !== undefined ? (
+            <>
+              <span className="font-semibold text-ink">{itemChance === null ? '…' : formatPercent(itemChance)}</span>{' '}
+              chance ashore in {windowDays} days
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-ink">{formatNets(totals[value] ?? 0)}</span> nets ashore in{' '}
+              {windowDays} days
+            </>
+          )}
         </div>
       </div>
     </div>

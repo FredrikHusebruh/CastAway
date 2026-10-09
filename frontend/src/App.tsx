@@ -4,11 +4,14 @@ import {
   type DriftResponse,
   type GearCollection,
   type IndexInfo,
+  type ItemBeaching,
   API_URL,
+  STATIC,
   fetchBeaching,
   fetchDrift,
   fetchGear,
   fetchIndex,
+  fetchItemBeaching,
   fetchPaths,
   type ParticlePath,
 } from './api'
@@ -35,6 +38,9 @@ export default function App() {
   const [paths, setPaths] = useState<{ ids: string[]; paths: ParticlePath[] } | null>(null)
   const [layers, setLayers] = useState<Layers>({ gear: true, beaching: true, paths: true, drift: false })
   const [focus, setFocus] = useState<[number, number] | null>(null)
+  // item focus: one lost item whose own beaching chance replaces the regional map
+  const [itemId, setItemId] = useState<string | null>(null)
+  const [itemBeaching, setItemBeaching] = useState<ItemBeaching | null>(null)
 
   useEffect(() => {
     Promise.all([fetchIndex(), fetchGear()])
@@ -80,22 +86,62 @@ export default function App() {
     }
   }, [selectedNets, date, layers.drift])
 
+  useEffect(() => {
+    if (!date || !itemId) return
+    let stale = false
+    fetchItemBeaching(itemId, date)
+      .then((b) => !stale && setItemBeaching(b))
+      .catch((e: Error) => setError(e.message))
+    return () => {
+      stale = true
+    }
+  }, [itemId, date])
+
   const showDrift = useCallback((ids: string[]) => {
     setSelectedNets(ids.slice(0, MAX_DRIFT_NETS))
     setLayers((l) => (l.paths || l.drift ? l : { ...l, paths: true }))
   }, [])
 
-  const hotspots = useMemo(
-    () => [...(cells?.features ?? [])].sort((a, b) => b.properties.expected_nets - a.properties.expected_nets).slice(0, 5),
-    [cells],
+  // from a coast-cell popup: paths for the items behind it, regional map stays
+  const showCellDrift = useCallback(
+    (ids: string[]) => {
+      setItemId(null)
+      showDrift(ids)
+    },
+    [showDrift],
   )
+
+  // from a lost-item popup: only this item's beaching chance, plus its paths
+  const showItem = useCallback(
+    (id: string) => {
+      setItemId(id)
+      showDrift([id])
+    },
+    [showDrift],
+  )
+
+  const clearSelection = useCallback(() => {
+    setItemId(null)
+    setSelectedNets([])
+  }, [])
+
+  const shownItem = itemBeaching && itemBeaching.id === itemId ? itemBeaching : null
+  const shownCells = itemId ? shownItem : cells
+  const hotspots = useMemo(
+    () =>
+      [...(shownCells?.features ?? [])]
+        .sort((a, b) => b.properties.expected_nets - a.properties.expected_nets)
+        .slice(0, 5),
+    [shownCells],
+  )
+  const itemGear = itemId ? gear?.features.find((f) => f.properties.id === itemId)?.properties : undefined
 
   if (error && !index) {
     return (
       <div className="grid h-full place-items-center p-6 text-center">
         <div className="max-w-md space-y-2">
           <h1 className="text-xl font-bold">CastAway</h1>
-          <p className="text-ink-2">Could not load the forecast from {API_URL}.</p>
+          <p className="text-ink-2">Could not load the forecast {STATIC ? 'files (data/)' : `from ${API_URL}`}.</p>
           <p className="text-sm text-ink-3">{error}</p>
         </div>
       </div>
@@ -121,7 +167,8 @@ export default function App() {
           layers={layers}
           onToggleLayer={(layer) => setLayers((l) => ({ ...l, [layer]: !l[layer] }))}
           nSelected={selectedNets.length}
-          onClearSelection={() => setSelectedNets([])}
+          onClearSelection={clearSelection}
+          item={itemId ? { gear: itemGear, chance: shownItem?.chance_total ?? null } : null}
         />
       </div>
       <main className="relative order-1 min-h-0 flex-1 md:order-2">
@@ -136,7 +183,8 @@ export default function App() {
           date={date}
           windowDays={windowDays}
           gear={gear}
-          cells={cells}
+          cells={shownCells}
+          mode={itemId ? 'item' : 'region'}
           breaks={index.color_breaks ?? []}
           drift={shownDrift}
           paths={shownPaths}
@@ -144,7 +192,8 @@ export default function App() {
           selectedNets={selectedNets}
           layers={layers}
           focus={focus}
-          onShowDrift={showDrift}
+          onShowDrift={showCellDrift}
+          onShowItem={showItem}
         />
       </main>
     </div>

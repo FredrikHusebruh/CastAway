@@ -1,14 +1,24 @@
-import { DRIFT_LABELS, DRIFT_RAMP, GEAR_COLOR, RAMP, SELECTED_COLOR, STRANDED_COLOR, windageColor } from '../format'
+import {
+  DRIFT_RAMP,
+  GEAR_COLOR,
+  RAMP,
+  RAMP_OPACITY,
+  SELECTED_COLOR,
+  STRANDED_COLOR,
+  beachingRange,
+  formatNets,
+  formatPercent,
+  windageColor,
+} from '../format'
 import type { Layers } from './Map'
 
-/** Class labels for ascending breaks (already rounded server-side), e.g. ["< 0.0006", ..., "≥ 0.008"]. */
-function classLabels(breaks: number[]): string[] {
-  if (breaks.length === 0) return ['> 0']
-  return [
-    `< ${breaks[0]}`,
-    ...breaks.slice(1).map((b, k) => `${breaks[k]}–${b}`),
-    `≥ ${breaks[breaks.length - 1]}`,
-  ]
+/** CSS gradient through hex stops, optionally with per-stop opacity (matches the map rasters). */
+function gradient(stops: readonly string[], alphas?: readonly number[]): string {
+  const parts = stops.map((c, k) => {
+    const a = alphas ? Math.round(alphas[k] * 255).toString(16).padStart(2, '0') : ''
+    return `${c}${a}`
+  })
+  return `linear-gradient(to right, ${parts.join(', ')})`
 }
 
 const heading = 'text-xs font-medium uppercase tracking-wide text-ink-3'
@@ -18,22 +28,25 @@ interface Props {
   windowDays: number
   windageFactors: number[]
   layers: Layers
+  itemMode: boolean
 }
 
-export default function Legend({ breaks, windowDays, windageFactors, layers }: Props) {
-  const labels = classLabels(breaks)
+export default function Legend({ breaks, windowDays, windageFactors, layers, itemMode }: Props) {
+  const [lo, hi] = beachingRange(breaks)
   return (
     <div className="space-y-3 text-sm">
       <div className="space-y-1">
-        <div className={heading}>Expected nets per ~1 km of coast, {windowDays} days</div>
-        <ul className="space-y-1">
-          {labels.map((label, k) => (
-            <li key={label} className="flex items-center gap-2">
-              <span className="h-3 w-5 rounded-sm" style={{ background: RAMP[k] }} />
-              <span className="text-ink-2">{label}</span>
-            </li>
-          ))}
-        </ul>
+        <div className={heading}>
+          {itemMode
+            ? `Chance this item washes ashore per ~1 km, ${windowDays} days`
+            : `Expected nets per ~1 km of coast, ${windowDays} days`}
+        </div>
+        <div className="h-3 rounded-sm" style={{ background: gradient(RAMP, RAMP_OPACITY) }} />
+        <div className="flex justify-between text-xs text-ink-3">
+          <span>≤ {itemMode ? formatPercent(lo) : formatNets(lo)}</span>
+          <span>log scale</span>
+          <span>≥ {itemMode ? formatPercent(hi) : formatNets(hi)}</span>
+        </div>
       </div>
       {layers.paths && (
         <div className="space-y-1">
@@ -55,11 +68,7 @@ export default function Legend({ breaks, windowDays, windageFactors, layers }: P
       {layers.drift && (
         <div className="space-y-1">
           <div className={heading}>Where selected items drift</div>
-          <div className="flex gap-0.5">
-            {DRIFT_RAMP.map((c, k) => (
-              <span key={c} className="h-3 flex-1 first:rounded-l-sm last:rounded-r-sm" style={{ background: c }} title={DRIFT_LABELS[k]} />
-            ))}
-          </div>
+          <div className="h-3 rounded-sm" style={{ background: gradient(DRIFT_RAMP) }} />
           <div className="flex justify-between text-xs text-ink-3">
             <span>Less likely</span>
             <span>More likely</span>

@@ -154,3 +154,25 @@ def test_trim_paths_thins_particles_and_steps():
     paths = trim_paths({"n": _paths_net()}, None, per_factor=1, step=2)
     assert [p["wdf"] for p in paths] == [0.0, 0.03]  # one per wind drift factor
     assert paths[0]["coords"] == [[70.0, 30.0], [70.2, 30.2], [70.3, 30.3]]  # every 2nd step + last
+
+
+def test_trim_paths_uses_output_step_length():
+    from castaway.aggregate import trim_paths
+
+    net = {**_paths_net(), "start": "2026-10-08T23:00:00+00:00", "step_minutes": 15}
+    # 15-min steps from 23:00: steps 0-3 fall on 8 Oct, so all 4 points of the first path are kept
+    by_8th = trim_paths({"n": net}, "2026-10-08", per_factor=10, step=1)
+    assert len(by_8th[0]["coords"]) == 4
+
+
+def test_item_strandings_groups_per_item_and_keeps_weights():
+    from castaway.aggregate import item_strandings
+
+    strandings = _strandings(
+        [("a", 30.0, 70.0, "2026-10-09T01:00", 0.0015), ("a", 30.1, 70.1, "2026-10-09T02:00", 0.0015)]
+    )
+    gear = pd.DataFrame({"id": ["a", "b"], "float_prob": [0.3, 0.05]})
+    items = item_strandings(strandings, gear)
+    assert items["a"]["float_prob"] == 0.3
+    assert [s[3] for s in items["a"]["strandings"]] == [0.0015, 0.0015]
+    assert items["b"] == {"float_prob": 0.05, "strandings": []}

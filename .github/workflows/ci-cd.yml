@@ -1,0 +1,140 @@
+# CastAway CI/CD - no server needed.
+#
+# On every push / pull request: test the backend and build the frontend.
+# On push to Main, every morning, or the "Run workflow" button: run the forecast on GitHub's computers,
+# build the static website with the forecast files inside, and push it to the `deploy` branch.
+# Hostinger's Git deployment pulls that branch into public_html (auto-deploy via webhook).
+#
+# One-time setup (see README "Deployment"):
+#   1. Push this file to Main. The first successful run creates the `deploy` branch.
+#   2. Hostinger hPanel -> your website -> Advanced -> Git:
+#        repository https://github.com/FredrikHusebruh/CastAway.git, branch `deploy`, directory empty (public_html).
+#      Turn on Auto Deployment and copy its webhook URL.
+#   3. GitHub repo -> Settings -> Webhooks -> Add webhook: paste the URL, content type application/json, push events.
+#
+# Settings (GitHub repo -> Settings -> Secrets and variables -> Actions):
+#   Secrets   BW_CLIENT_ID, BW_CLIENT_SECRET   BarentsWatch API client (optional: without them the public download is used)
+#   Variables CASTAWAY_REGION                  region preset (default finnmark_east; e.g. kristiansand)
+#             CASTAWAY_MOCK                    "true" = publish randomly generated demo reports (shows a MOCK DATA badge)
+#             CASTAWAY_HINDCAST_DAYS           days of drift before today (default 7; 30 takes much longer the first time)
+
+name: CI/CD
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 4 * * *" # every day at 04:17 UTC (06:17 Norwegian summer time)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # lets the publish job push the built site to the `deploy` branch
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: ruff check .
+      - run: pytest -q
+
+  frontend:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+        env:
+          VITE_STATIC: "true"
+
+  publish:
+    name: Forecast and publish
+    needs: [backend, frontend]
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/Main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    env:
+      CASTAWAY_REGION: ${{ vars.CASTAWAY_REGION || 'finnmark_east' }}
+      CASTAWAY_HINDCAST_DAYS: ${{ vars.CASTAWAY_HINDCAST_DAYS || '7' }}
+      BW_CLIENT_ID: ${{ secrets.BW_CLIENT_ID }}
+      BW_CLIENT_SECRET: ${{ secrets.BW_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # NorKyst ocean data is downloaded once per day and reused by later runs (MET asks for cached, sequential access).
+      - name: Restore cached ocean data
+        uses: actions/cache@v4
+        with:
+          path: backend/data/raw
+          key: raw-${{ env.CASTAWAY_REGION }}-${{ github.run_id }}
+          restore-keys: raw-${{ env.CASTAWAY_REGION }}-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Run forecast (BarentsWatch + MET NorKyst -> OpenDrift -> beaching files)
+        working-directory: backend
+        run: |
+          if [ "${{ vars.CASTAWAY_MOCK }}" = "true" ]; then
+            python scripts/make_mock_gear.py --n 60
+            python scripts/run_forecast.py --mock
+          else
+            python scripts/run_forecast.py
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build static site with the forecast files
+        working-directory: frontend
+        env:
+          VITE_STATIC: "true"
+        run: |
+          npm ci
+          npm run build
+          mkdir -p dist/data
+          # files the map reads; runs/ (raw simulation output) and tracks/ (API-only) are not published
+          rsync -a --exclude 'runs/' --exclude 'tracks/' --exclude '*.png' ../backend/data/output/ dist/data/
+          du -sh dist dist/data
+
+      - name: Publish to the deploy branch (Hostinger pulls it)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: frontend/dist
+          publish_branch: deploy
+          force_orphan: true # keep only the latest build so the branch stays small
+          commit_message: Forecast and site build
