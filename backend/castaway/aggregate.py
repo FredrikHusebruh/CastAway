@@ -280,7 +280,7 @@ def particle_paths(run_dir: Path) -> dict[str, dict[str, Any]]:
                         ],
                     }
                 )
-            out[net["id"]] = {"start": start, "particles": particles}
+            out[net["id"]] = {"start": start, "step_minutes": config.OUTPUT_STEP_MINUTES, "particles": particles}
     return out
 
 
@@ -289,17 +289,15 @@ def trim_paths(nets: dict[str, dict[str, Any]], until: str | None, per_factor: i
 
     Returns [{"id", "wdf", "stranded", "coords": [[lat, lon]]}].
 
-    ``stranded`` is true only if the particle had stranded by then; coords are subsampled every ``step`` hours
-    (the last position is always kept).
+    ``stranded`` is true only if the particle had stranded by then; coords are subsampled every ``step`` output
+    steps (the last position is always kept).
     """
     out = []
     for net_id, net in nets.items():
         start = pd.Timestamp(net["start"])
-        limit = (
-            None
-            if until is None
-            else int((pd.Timestamp(until, tz="UTC") + pd.Timedelta(days=1) - start) / pd.Timedelta(hours=1)) - 1
-        )
+        step_len = pd.Timedelta(minutes=net.get("step_minutes", 60))
+        end_of_day = pd.Timestamp(until, tz="UTC") + pd.Timedelta(days=1) if until else None
+        limit = None if end_of_day is None else int((end_of_day - start) / step_len) - 1
         taken: dict[float, int] = {}
         for p in net["particles"]:
             if taken.get(p["wdf"], 0) >= per_factor:
@@ -344,6 +342,36 @@ def combine_drift(nets: list[dict[str, Any]], until: str | None, cell_deg: tuple
     )
 
 
+def item_strandings(strandings: pd.DataFrame, gear: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    """Per item: its stranded particles [[lon, lat, iso_time, weight]] and its float probability.
+
+    Weights are float_prob / particles_per_net, so summing them per cell gives the item's total chance of
+    washing ashore there: its own share of the regional expected_nets.
+    """
+    by_id = {net_id: grp for net_id, grp in strandings.groupby("net_id")}
+    out: dict[str, dict[str, Any]] = {}
+    for g in gear.itertuples():
+        grp = by_id.get(g.id)
+        rows = (
+            []
+            if grp is None
+            else [
+                [round(float(r.lon), 5), round(float(r.lat), 5), r.time.isoformat(), float(r.weight)]
+                for r in grp.itertuples()
+            ]
+        )
+        out[g.id] = {"float_prob": float(g.float_prob), "strandings": rows}
+    return out
+
+
+def item_window_cells(item: dict[str, Any], lat0: float, day: str, window_days: int) -> pd.DataFrame:
+    """One item's cells for the ``window_days`` days up to ``day`` (same columns as rolling_cells)."""
+    df = pd.DataFrame(item["strandings"], columns=["lon", "lat", "time", "weight"])
+    df["time"] = pd.to_datetime(df["time"], utc=True)
+    df["net_id"] = "item"
+    return rolling_cells(df[STRANDING_COLUMNS], lat0, [day], window_days)
+
+
 def _dates(window: config.Window) -> list[str]:
     first, last = window.first_day.date(), window.end.date()
     return [(first + timedelta(days=k)).isoformat() for k in range((last - first).days + 1)]
@@ -370,6 +398,7 @@ def write_outputs(
         *config.TRACKS_DIR.glob("*.json"),
         *config.DRIFT_DIR.glob("*.json"),
         *config.PATHS_DIR.glob("*.json"),
+        *config.STRANDINGS_DIR.glob("*.json"),
     ]:
         old.unlink()
 
@@ -390,6 +419,8 @@ def write_outputs(
         _write_json(config.DRIFT_DIR / f"{net_id}.json", density)
     for net_id, paths in particle_paths(run_dir).items():
         _write_json(config.PATHS_DIR / f"{net_id}.json", paths)
+    for net_id, item in item_strandings(strandings, gear).items():
+        _write_json(config.STRANDINGS_DIR / f"{net_id}.json", item)
 
     index = {
         "region": region,

@@ -24,6 +24,10 @@ from castaway import config
 
 GEAR_COLUMNS = ["id", "lon", "lat", "lost_time", "gear_type", "float_prob"]
 
+# The only notremoved fields CastAway uses. Everything else (vesselName, contactEmail/Phone, mmsi, ircs, regNum,
+# comments, ...) is personal data and is dropped before anything is written to disk.
+NOTREMOVED_FIELDS = ("lostMessageId", "toolId", "isRemoved", "toolTypeCode", "lostTime", "geometry")
+
 _token: dict[str, Any] = {"value": None, "expires": 0.0}
 
 
@@ -59,8 +63,13 @@ def _is_fresh(path: Path) -> bool:
     return age_s < config.RAW_CACHE_MAX_AGE_HOURS * 3600
 
 
+def strip_personal_data(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only NOTREMOVED_FIELDS of each record."""
+    return [{k: r.get(k) for k in NOTREMOVED_FIELDS} for r in records]
+
+
 def fetch_notremoved(force: bool = False) -> list[dict[str, Any]]:
-    """Lost gear not yet removed (authenticated). Cached as data/raw/notremoved.json."""
+    """Lost gear not yet removed (authenticated), personal fields stripped. Cached as data/raw/notremoved.json."""
     path = config.RAW_DIR / "notremoved.json"
     if force or not _is_fresh(path):
         resp = requests.get(
@@ -70,8 +79,8 @@ def fetch_notremoved(force: bool = False) -> list[dict[str, Any]]:
         )
         resp.raise_for_status()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(resp.text, encoding="utf-8")
-    return json.loads(path.read_text(encoding="utf-8"))
+        path.write_text(json.dumps(strip_personal_data(resp.json())), encoding="utf-8")
+    return strip_personal_data(json.loads(path.read_text(encoding="utf-8")))  # also cleans older cache files
 
 
 def fetch_anonymous_olex(force: bool = False) -> str:

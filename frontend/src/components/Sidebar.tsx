@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import type { CellFeature, IndexInfo } from '../api'
-import { formatDateTime, formatNets, ringCenter } from '../format'
+import type { CellFeature, GearProps, IndexInfo } from '../api'
+import { formatDateTime, formatNets, formatPercent, gearLabel, ringCenter } from '../format'
 import DateSlider from './DateSlider'
 import Legend from './Legend'
 import type { Layers } from './Map'
@@ -17,6 +17,8 @@ interface Props {
   onToggleLayer: (layer: keyof Layers) => void
   nSelected: number
   onClearSelection: () => void
+  /** Set when one lost item is in focus: its own beaching chance replaces the regional map. */
+  item: { gear: GearProps | undefined; chance: number | null } | null
 }
 
 function Section({ title, children }: { title?: string; children: ReactNode }) {
@@ -57,11 +59,41 @@ export default function Sidebar(props: Props) {
           today={index.forecast_start.slice(0, 10)}
           totals={index.expected_nets_per_date}
           windowDays={props.windowDays}
+          itemChance={props.item ? props.item.chance : undefined}
           onChange={props.onDateChange}
         />
       </Section>
 
-      <Section title={`Most likely to wash ashore · last ${props.windowDays} days`}>
+      {props.item && (
+        <Section title="Selected item">
+          <div className="space-y-1 rounded-md bg-surface-2 p-3 text-sm">
+            <div className="font-semibold">{props.item.gear ? gearLabel(props.item.gear.gear_type) : 'Lost item'}</div>
+            {props.item.gear && (
+              <div className="text-ink-2">
+                Lost {formatDateTime(props.item.gear.lost_time)} · floats ~
+                {Math.round(props.item.gear.float_prob * 100)} %
+              </div>
+            )}
+            <div>
+              <span className="text-lg font-semibold">
+                {props.item.chance === null ? '…' : formatPercent(props.item.chance)}
+              </span>{' '}
+              chance it washes ashore in the {props.windowDays} days to this date
+            </div>
+            <button type="button" onClick={props.onClearSelection} className="text-sm font-medium text-ink underline">
+              Show all items
+            </button>
+          </div>
+        </Section>
+      )}
+
+      <Section
+        title={
+          props.item
+            ? `Where this item most likely washes ashore · last ${props.windowDays} days`
+            : `Most likely to wash ashore · last ${props.windowDays} days`
+        }
+      >
         {props.hotspots.length === 0 ? (
           <p className="text-sm text-ink-3">No strandings expected in this period.</p>
         ) : (
@@ -78,7 +110,9 @@ export default function Sidebar(props: Props) {
                     <span className="text-ink-2">
                       {k + 1}. {lat.toFixed(3)}°N {lng.toFixed(3)}°E
                     </span>
-                    <span className="font-semibold tabular-nums">{formatNets(f.properties.expected_nets)}</span>
+                    <span className="font-semibold tabular-nums">
+                      {props.item ? formatPercent(f.properties.expected_nets) : formatNets(f.properties.expected_nets)}
+                    </span>
                   </button>
                 </li>
               )
@@ -114,6 +148,7 @@ export default function Sidebar(props: Props) {
           windowDays={props.windowDays}
           windageFactors={props.windageFactors}
           layers={props.layers}
+          itemMode={props.item !== null}
         />
       </Section>
 
