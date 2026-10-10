@@ -50,6 +50,7 @@ export interface ParticlePath {
   wdf: number // wind drift factor (windage)
   stranded: boolean // had stranded by the end of the requested date
   coords: [number, number][] // [lat, lon], every output step (thinned when many nets are selected)
+  times?: number[] // epoch ms of each coord (static mode only; the mobile app animates paths with it)
 }
 
 export type GearCollection = FeatureCollection<Point, GearProps>

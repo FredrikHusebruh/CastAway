@@ -2,19 +2,20 @@
 
 The CastAway app, phone-first but also used on PCs. **The whole UI is in Norwegian.** It uses the same FastAPI backend and data as `../frontend` (the desktop map), with a layout built for touch:
 
-- a full-screen map, with no zoom buttons (pinch to zoom)
-- a bottom sheet holding a thumb-sized date bar (prev/next, play, slider)
+- a full-screen vector map (MapLibre GL with free OpenFreeMap tiles, no API key) made for the sea: blue sea, crisp coastline, soft natural land colours and place names, no roads or borders (always light); it opens where you are if you allow location
+- a bottom sheet holding a thumb-sized date bar (prev/next, play, slider). **Play steps through time half an hour at a time**: selected items' particles move along their drift paths, strandings pop up along the coast as they happen, and the beaching map cross-fades from one day to the next
 - tabs in the sheet for Hotspots, Layers, Legend and About
 - tapping a lost item or coast cell opens a detail card in the sheet, instead of a small map popup
 - a larger tap area around map dots
-- the same map as the desktop app: smooth viridis rasters for the beaching forecast and drift heat map, single-canvas drift paths with 100 m stranding squares, and **item focus** (tap a lost item → "Show where it washes ashore" shows that item's own chance in %; "Show all items" goes back)
+- hotspots and coast cells are named after the nearest place (Kartverket's public place-name service), with coordinates as a fallback
+- the same map content as the desktop app: smooth viridis rasters for the beaching forecast and drift heat map (MapLibre image layers), drift paths with 100 m stranding squares (GPU line and symbol layers), and **item focus** (tap a lost item → "Vis hvor det driver i land" shows that item's own chance in %; "Vis alle" goes back)
 - a bottom menu with **Hjem**, **Rapportering**, **Toppliste** and **Profil**:
   - Hjem returns to the whole region.
   - Rapportering reports found gear, "checked, nothing here" and clean-ups, using an in-app camera with GPS and time. A found item can later be marked as handed in.
   - Toppliste ranks people, teams and municipalities, per season or all-time, against labelled demo participants.
   - Profil holds the name, team and municipality, points, streak, badges, and a demo moderator.
   - Everything is stored on the device only (IndexedDB/localStorage). The points rules are in `src/game/rules.ts` (see the main README, "Reporting and points").
-- the user's own reports on the map as the "Mine funn" layer
+- the user's own reports on the map as the "Mine funn" layer (teal dots, fainter while pending)
 - a **?** button at the top right that opens a step-by-step guide to the app, with a close button
 
 ## Run

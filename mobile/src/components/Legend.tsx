@@ -1,6 +1,5 @@
 import {
   DRIFT_RAMP,
-  GEAR_COLOR,
   REPORT_COLOR,
   RAMP,
   RAMP_OPACITY,
@@ -9,9 +8,14 @@ import {
   beachingRange,
   formatNets,
   formatPercent,
+  gearLabel,
   windageColor,
 } from '../format'
+import { gearIconUrl } from '../gearIcons'
 import type { Layers } from './Map'
+
+// Gear types in the legend, as the backend knows them (config.GEAR_FLOAT_PROB); 'unknown' shares the 'generic' icon.
+const LEGEND_GEAR = ['crab_pot', 'fish_pot', 'nets', 'longline', 'seine', 'sensor_cable', 'generic']
 
 /** CSS gradient through hex stops, optionally with per-stop opacity (matches the map rasters). */
 function gradient(stops: readonly string[], alphas?: readonly number[]): string {
@@ -76,21 +80,26 @@ export default function Legend({ breaks, windowDays, windageFactors, layers, ite
           </div>
         </div>
       )}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-ink-2">
-        <span className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full ring-1 ring-white" style={{ background: GEAR_COLOR }} />
-          Tapt redskap
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="h-3 w-3 rounded-full ring-2 ring-white" style={{ background: SELECTED_COLOR }} />
-          Valgt
-        </span>
-        {layers.reports && (
+      <div className="space-y-1">
+        <div className={heading}>Tapte redskap</div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-ink-2">
+          {LEGEND_GEAR.map((type) => (
+            <span key={type} className="flex items-center gap-2">
+              <img src={gearIconUrl(type)} alt="" className="h-5 w-5" />
+              {gearLabel(type)}
+            </span>
+          ))}
           <span className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full ring-2 ring-white" style={{ background: REPORT_COLOR }} />
-            Mine funn
+            <span className="h-5 w-5 rounded-full ring-2 ring-white" style={{ background: SELECTED_COLOR }} />
+            Valgt
           </span>
-        )}
+          {layers.reports && (
+            <span className="flex items-center gap-2">
+              <span className="h-5 w-5 rounded-full ring-2 ring-white" style={{ background: REPORT_COLOR }} />
+              Mine funn
+            </span>
+          )}
+        </div>
       </div>
     </div>
   )
